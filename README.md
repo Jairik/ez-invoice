@@ -37,16 +37,16 @@ The first run creates `config.toml`, `invoices.db`, and the configured invoice o
 
 ## Configure invoice profiles
 
-The generated config is intentionally incomplete: sender and recipient details must be filled before an invoice can be finalized. Edit `config.toml` directly, run the same commands inside the TUI, or use the CLI helpers:
+The generated config is prefilled with the Tenaxiom sender, recipient, contacts, Net 15 terms, and supplied logo. Edit `config.toml` directly, run the same commands inside the TUI, or use the CLI helpers when those defaults need to change:
 
 ```sh
 # Fill the required sender and default recipient profile.
-./ez-invoice config set sender.name "Ada Lovelace"
-./ez-invoice config set sender.address "1 Computing Lane"
-./ez-invoice config set sender.email "ada@example.com"
-./ez-invoice config set recipient.company "Analytical Engines"
-./ez-invoice config set recipient.address "2 Difference Road"
-./ez-invoice config contact add "Charles Babbage" "charles@example.com"
+./ez-invoice config set sender.name "Jairik McCauley"
+./ez-invoice config set sender.address "11223 Gehr Rd, Big Pool MD 21711"
+./ez-invoice config set sender.email "mjairik@gmail.com"
+./ez-invoice config set recipient.company "Tenaxiom Technology, Inc"
+./ez-invoice config set recipient.address "7459 Digby Grn\nAlexandria, VA 22315"
+./ez-invoice config contact add "Amy Marden" "amy.marden@tenaxiom.tech"
 ./ez-invoice config show
 ```
 
@@ -57,24 +57,28 @@ A representative configuration looks like this:
 ```toml
 # Central invoice defaults; sender and recipient values are examples.
 payable_terms = 'Net 15'
-logo_path = ''
+logo_path = '/home/user/.config/ez-invoice/tenaxiom-logo.png'
 currency = 'USD'
 output_directory = '/home/user/Invoices'
 default_notes = 'None'
 default_adjustment = '0.00'
 
 [sender]
-full_name = 'Ada Lovelace'
-address = '1 Computing Lane'
-email = 'ada@example.com'
+full_name = 'Jairik McCauley'
+address = '11223 Gehr Rd, Big Pool MD 21711'
+email = 'mjairik@gmail.com'
 
 [[recipients]]
-company_name = 'Analytical Engines'
-address = '2 Difference Road'
+company_name = 'Tenaxiom Technology, Inc'
+address = '7459 Digby Grn\nAlexandria, VA 22315'
 
 [[contacts]]
-name = 'Charles Babbage'
-email = 'charles@example.com'
+name = 'Amy Marden'
+email = 'amy.marden@tenaxiom.tech'
+
+[[contacts]]
+name = 'Tito Torres'
+email = 'tito.torres@tenaxiom.tech'
 ```
 
 ## Presets and time entries
@@ -111,13 +115,13 @@ Use `invoice list` for history and `invoice export ID --output DIRECTORY` to ren
 
 ## TUI workflow
 
-The TUI opens on a task-oriented dashboard for adding time, reviewing entries, building invoices, browsing invoice history, managing presets, and editing settings. It uses the same validation and persistence behavior as the CLI.
+The TUI opens on a keyboard-first workspace with Overview, Time, Invoices, Presets, and Settings areas. It uses the same validation and persistence behavior as the CLI, but normal use does not require entering commands.
 
-- Use Up and Down to move through menus and rows.
-- In the time-entry form, use Left and Right to move between fields, then Up and Down to change dates, times, AM/PM, and presets.
-- In other forms, use Up and Down to move and Left and Right to adjust selectable values.
-- Use Enter to open an item, edit an exact value, or confirm the primary action.
-- Use Escape to cancel an edit or return to the previous screen, and Ctrl+C to quit.
+- Use Left and Right to switch workspace areas; Up and Down move through the active rows.
+- Overview shows today’s hours, unbilled value, recent work, and direct quick actions.
+- Selecting a row reveals Edit, Delete, Restore, or Export actions in the same panel; use Left and Right to choose one, Enter to activate it, and Escape to close the action strip.
+- In forms, use Up and Down to move between fields, then Left and Right to change dates, times, AM/PM, and selectable presets.
+- Use Enter to start typing a free-form value or activate the highlighted save/continue action. Escape cancels typing or returns to the previous screen; Ctrl+C quits.
 
 New time entries default both start and end dates to today. Times use separate AM/PM selectors, accept direct 12-hour typing with an optional colon, and move in 15-minute steps with Up and Down. The live total appears below the interval, and a confirmation screen shows the exact dates, times, and duration before saving. End timestamps must be later than start timestamps; separate dates continue to support overnight work. Description and rate fields start with the first active preset; cycle to Custom to enter a one-off value. Invoice creation guides you through dates, exact row selection, metadata, review, and PDF generation.
 

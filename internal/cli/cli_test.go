@@ -42,7 +42,7 @@ func TestConfigCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned an error: %v", err)
 	}
-	if loaded.Sender.FullName != "Ada Lovelace" || loaded.Recipients[0].CompanyName != "Analytical Engines" || len(loaded.Contacts) != 1 {
+	if loaded.Sender.FullName != "Ada Lovelace" || loaded.Recipients[0].CompanyName != "Analytical Engines" || len(loaded.Contacts) != 3 || loaded.Contacts[2].Name != "Charles Babbage" {
 		t.Fatalf("config commands were not persisted: %+v", loaded)
 	}
 	output, err := runTestCommand(application, "config", "show")

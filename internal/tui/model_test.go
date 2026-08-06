@@ -32,6 +32,56 @@ func TestHomeNavigationOpensAndClosesScreens(t *testing.T) {
 	}
 }
 
+// TestWorkspaceNavigationSwitchesAreas catches broken top-level arrow navigation.
+func TestWorkspaceNavigationSwitchesAreas(t *testing.T) {
+	model := newAt(openTUITestApp(t), time.Date(2026, 8, 6, 12, 0, 0, 0, time.Local))
+
+	model = press(model, tea.KeyRight)
+	if model.screen != screenTimeEntries || model.workspaceArea != workspaceTime {
+		t.Fatalf("Right switched to screen=%v area=%d, want Time", model.screen, model.workspaceArea)
+	}
+	model = press(model, tea.KeyLeft)
+	if model.screen != screenHome || model.workspaceArea != workspaceOverview {
+		t.Fatalf("Left switched to screen=%v area=%d, want Overview", model.screen, model.workspaceArea)
+	}
+}
+
+// TestInlineTimeEntryActions keeps row actions in the selected list panel.
+func TestInlineTimeEntryActions(t *testing.T) {
+	application := openTUITestApp(t)
+	start := time.Date(2026, 8, 6, 9, 0, 0, 0, time.Local)
+	if _, err := application.Store.CreateTimeEntry(context.Background(), domain.TimeEntry{
+		StartAt: start, EndAt: start.Add(time.Hour), Description: "Client work", RateAmountCents: 10_000, Currency: "USD",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	model := newAt(application, time.Date(2026, 8, 6, 12, 0, 0, 0, time.Local))
+	model.openTimeEntries()
+	model.cursor = 3
+	model = press(model, tea.KeyEnter)
+	if model.screen != screenTimeEntries || !model.actionMode || !strings.Contains(model.View(), "Edit") || !strings.Contains(model.View(), "Delete") {
+		t.Fatalf("selected row opened screen=%v actionMode=%t view=%q", model.screen, model.actionMode, model.View())
+	}
+	model = press(model, tea.KeyEsc)
+	if model.actionMode {
+		t.Fatal("Escape did not close inline actions")
+	}
+}
+
+// TestNonTimeFormsUseVerticalFieldMovement keeps form navigation consistent.
+func TestNonTimeFormsUseVerticalFieldMovement(t *testing.T) {
+	model := newAt(openTUITestApp(t), time.Date(2026, 8, 6, 12, 0, 0, 0, time.Local))
+	model.openSettingsForm(false)
+	model = press(model, tea.KeyDown)
+	if model.cursor != senderAddressField {
+		t.Fatalf("Down selected field %d, want address field", model.cursor)
+	}
+	model = press(model, tea.KeyUp)
+	if model.cursor != senderNameField {
+		t.Fatalf("Up selected field %d, want name field", model.cursor)
+	}
+}
+
 // TestAddTimeDefaultsAndArrowAdjustments catches regressions in today and preset defaults.
 func TestAddTimeDefaultsAndArrowAdjustments(t *testing.T) {
 	application := openTUITestApp(t)
@@ -59,25 +109,25 @@ func TestAddTimeDefaultsAndArrowAdjustments(t *testing.T) {
 	}
 
 	model.cursor = timeDateField
-	model = press(model, tea.KeyUp)
+	model = press(model, tea.KeyRight)
 	if model.fields[timeDateField].value != "2026-08-07" {
-		t.Fatalf("Up adjusted date to %q", model.fields[timeDateField].value)
+		t.Fatalf("Right adjusted date to %q", model.fields[timeDateField].value)
 	}
 	model.cursor = timeRateField
-	model = press(model, tea.KeyUp)
+	model = press(model, tea.KeyRight)
 	if model.fields[timeRateField].choiceID() != secondRate.ID {
-		t.Fatalf("Up selected rate %d, want %d", model.fields[timeRateField].choiceID(), secondRate.ID)
+		t.Fatalf("Right selected rate %d, want %d", model.fields[timeRateField].choiceID(), secondRate.ID)
 	}
 	model.fields[timeStartField].value = "09:00"
 	model.cursor = timeStartField
-	model = press(model, tea.KeyUp)
+	model = press(model, tea.KeyRight)
 	if model.fields[timeStartField].value != "09:15" {
-		t.Fatalf("Up adjusted start time to %q", model.fields[timeStartField].value)
+		t.Fatalf("Right adjusted start time to %q", model.fields[timeStartField].value)
 	}
 	model.cursor = timeStartPeriodField
-	model = press(model, tea.KeyUp)
+	model = press(model, tea.KeyRight)
 	if model.fields[timeStartPeriodField].value != "PM" {
-		t.Fatalf("Up adjusted start period to %q", model.fields[timeStartPeriodField].value)
+		t.Fatalf("Right adjusted start period to %q", model.fields[timeStartPeriodField].value)
 	}
 }
 
@@ -388,27 +438,31 @@ func TestTimeEntryShowsDurationAndRejectsEarlierEnd(t *testing.T) {
 	}
 }
 
-// TestTimeFormUsesArrowOnlyNavigation verifies horizontal movement and vertical value changes.
+// TestTimeFormUsesArrowOnlyNavigation verifies vertical movement and horizontal value changes.
 func TestTimeFormUsesArrowOnlyNavigation(t *testing.T) {
 	model := newAt(openTUITestApp(t), time.Date(2026, 8, 6, 12, 7, 0, 0, time.Local))
 	model = press(model, tea.KeyEnter)
-	model = press(model, tea.KeyRight)
-	if model.cursor != timeStartField {
-		t.Fatalf("Right selected field %d, want start time", model.cursor)
-	}
-	model = press(model, tea.KeyUp)
-	if model.fields[timeStartField].value != "12:15" || model.fields[timeStartPeriodField].value != "PM" {
-		t.Fatalf("Up initialized start to %q %q", model.fields[timeStartField].value, model.fields[timeStartPeriodField].value)
-	}
 	model = press(model, tea.KeyDown)
+	if model.cursor != timeStartField {
+		t.Fatalf("Down selected field %d, want start time", model.cursor)
+	}
+	model = press(model, tea.KeyRight)
+	if model.fields[timeStartField].value != "12:15" || model.fields[timeStartPeriodField].value != "PM" {
+		t.Fatalf("Right initialized start to %q %q", model.fields[timeStartField].value, model.fields[timeStartPeriodField].value)
+	}
+	model = press(model, tea.KeyLeft)
 	if model.fields[timeStartField].value != "12:00" {
-		t.Fatalf("Down adjusted start to %q", model.fields[timeStartField].value)
+		t.Fatalf("Left adjusted start to %q", model.fields[timeStartField].value)
 	}
 	model.fields[timeStartField].value = "11:45"
 	model.fields[timeStartPeriodField] = periodField("Start AM/PM", "AM")
-	model = press(model, tea.KeyUp)
+	model = press(model, tea.KeyRight)
 	if model.fields[timeStartField].value != "12:00" || model.fields[timeStartPeriodField].value != "PM" {
-		t.Fatalf("noon rollover produced %q %q", model.fields[timeStartField].value, model.fields[timeStartPeriodField].value)
+		t.Fatalf("Right noon rollover produced %q %q", model.fields[timeStartField].value, model.fields[timeStartPeriodField].value)
+	}
+	model = press(model, tea.KeyUp)
+	if model.cursor != timeDateField {
+		t.Fatalf("Up selected field %d, want start date", model.cursor)
 	}
 }
 
@@ -419,6 +473,25 @@ func TestTimeFormFitsStandardTerminal(t *testing.T) {
 	model = press(model, tea.KeyEnter)
 	if view := model.View(); lipgloss.Height(view) > model.height {
 		t.Fatalf("time form height=%d exceeds terminal height=%d: %q", lipgloss.Height(view), model.height, view)
+	}
+}
+
+// TestOverviewFitsStandardTerminal keeps the landing workspace compact.
+func TestOverviewFitsStandardTerminal(t *testing.T) {
+	application := openTUITestApp(t)
+	start := time.Date(2026, 8, 6, 9, 0, 0, 0, time.Local)
+	for index := 0; index < 5; index++ {
+		if _, err := application.Store.CreateTimeEntry(context.Background(), domain.TimeEntry{
+			StartAt: start.Add(time.Duration(index) * time.Hour), EndAt: start.Add(time.Duration(index)*time.Hour + time.Hour),
+			Description: "Client work", RateAmountCents: 10_000, Currency: "USD",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	model := newAt(application, time.Date(2026, 8, 6, 12, 0, 0, 0, time.Local))
+	model.width, model.height = 80, 24
+	if view := model.View(); lipgloss.Height(view) > model.height || !strings.Contains(view, "Quick actions") {
+		t.Fatalf("overview height=%d view=%q", lipgloss.Height(view), view)
 	}
 }
 

@@ -56,6 +56,14 @@ const (
 )
 
 const (
+	workspaceOverview = iota
+	workspaceTime
+	workspaceInvoices
+	workspacePresets
+	workspaceSettings
+)
+
+const (
 	timeDateField = iota
 	timeStartField
 	timeStartPeriodField
@@ -178,8 +186,13 @@ type Model struct {
 	status      string
 	statusError bool
 	now         time.Time
+	// workspaceArea tracks the active top-level workspace.
+	workspaceArea int
+	actionMode    bool
+	actionCursor  int
 
 	entries         []domain.TimeEntry
+	overviewEntries []domain.TimeEntry
 	selectedEntryID int64
 	timeEntryID     int64
 	timeCurrency    string
@@ -207,7 +220,9 @@ func New(application *app.App) Model { return newAt(application, time.Now()) }
 
 // newAt creates deterministic initial state for tests and the real current time for New.
 func newAt(application *app.App, now time.Time) Model {
-	return Model{application: application, screen: screenHome, now: now, invoiceSelected: map[int64]bool{}}
+	model := Model{application: application, screen: screenHome, now: now, workspaceArea: workspaceOverview, invoiceSelected: map[int64]bool{}}
+	model.loadOverview()
+	return model
 }
 
 // Run starts the full-screen terminal interface.
@@ -234,7 +249,18 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 		if message.Type == tea.KeyEsc {
+			if model.actionMode {
+				model.actionMode = false
+				return model, nil
+			}
 			model.back()
+			return model, nil
+		}
+		if model.actionMode {
+			model.updateInlineAction(message)
+			return model, nil
+		}
+		if model.handleWorkspaceNavigation(message) {
 			return model, nil
 		}
 		return model.updateNavigation(message)
@@ -311,6 +337,176 @@ func (model Model) updateNavigation(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return model, nil
 }
 
+// inlineActionLabels returns the actions available for the selected list row.
+func (model Model) inlineActionLabels() []string {
+	switch model.screen {
+	case screenTimeEntries:
+		return []string{"Edit", "Delete", "Close"}
+	case screenInvoices:
+		return []string{"Export PDF", "Close"}
+	case screenRates, screenDescriptions:
+		return []string{"Edit", "Disable / Restore", "Close"}
+	case screenRecipients, screenContacts:
+		return []string{"Edit", "Delete", "Close"}
+	default:
+		return nil
+	}
+}
+
+// moveActionCursor moves through a selected row's contextual actions.
+func (model *Model) moveActionCursor(key tea.KeyMsg, count int) {
+	if count == 0 {
+		model.actionCursor = 0
+		return
+	}
+	direction := 0
+	if key.Type == tea.KeyLeft || key.Type == tea.KeyUp {
+		direction = -1
+	}
+	if key.Type == tea.KeyRight || key.Type == tea.KeyDown {
+		direction = 1
+	}
+	model.actionCursor = (model.actionCursor + direction + count) % count
+}
+
+// updateInlineAction handles arrow navigation and activation for list actions.
+func (model *Model) updateInlineAction(key tea.KeyMsg) {
+	labels := model.inlineActionLabels()
+	model.moveActionCursor(key, len(labels))
+	if key.Type == tea.KeyEnter {
+		model.activateInlineAction()
+	}
+}
+
+// activateInlineAction runs the selected contextual action without a command menu.
+func (model *Model) activateInlineAction() {
+	switch model.screen {
+	case screenTimeEntries:
+		switch model.actionCursor {
+		case 0:
+			entry, err := model.application.Store.GetTimeEntry(context.Background(), model.selectedEntryID)
+			if err != nil {
+				model.setError(err)
+				return
+			}
+			model.actionMode = false
+			model.openTimeForm(&entry)
+		case 1:
+			model.actionMode = false
+			model.push(screenConfirmTimeDelete)
+		case 2:
+			model.actionMode = false
+		}
+	case screenInvoices:
+		if model.actionCursor == 0 {
+			if model.runCLI([]string{"invoice", "export", strconv.FormatInt(model.selectedInvoice, 10)}) {
+				model.actionMode = false
+				model.loadInvoices()
+			}
+			return
+		}
+		model.actionMode = false
+	case screenRates:
+		model.activatePresetAction(true)
+	case screenDescriptions:
+		model.activatePresetAction(false)
+	case screenRecipients:
+		model.activateConfigAction(true)
+	case screenContacts:
+		model.activateConfigAction(false)
+	}
+}
+
+// activatePresetAction edits or toggles the selected reusable preset.
+func (model *Model) activatePresetAction(rate bool) {
+	if model.actionCursor == 2 {
+		model.actionMode = false
+		return
+	}
+	if rate {
+		preset, err := model.findRate(model.selectedRate)
+		if err != nil {
+			model.setError(err)
+			return
+		}
+		if model.actionCursor == 0 {
+			model.actionMode = false
+			model.openRateForm(&preset)
+			return
+		}
+		if preset.Active {
+			model.actionMode = false
+			model.push(screenConfirmRateToggle)
+			return
+		}
+		if model.runCLI([]string{"rate", "restore", strconv.FormatInt(preset.ID, 10)}) {
+			model.actionMode = false
+			model.status = "Rate restored"
+		}
+		return
+	}
+	preset, err := model.findDescription(model.selectedDescription)
+	if err != nil {
+		model.setError(err)
+		return
+	}
+	if model.actionCursor == 0 {
+		model.actionMode = false
+		model.openDescriptionForm(&preset)
+		return
+	}
+	if preset.Active {
+		model.actionMode = false
+		model.push(screenConfirmDescriptionToggle)
+		return
+	}
+	if model.runCLI([]string{"description", "restore", strconv.FormatInt(preset.ID, 10)}) {
+		model.actionMode = false
+		model.status = "Description restored"
+	}
+}
+
+// activateConfigAction edits or removes a selected configuration profile.
+func (model *Model) activateConfigAction(recipient bool) {
+	if model.actionCursor == 2 {
+		model.actionMode = false
+		return
+	}
+	if recipient {
+		if model.actionCursor == 0 {
+			model.actionMode = false
+			model.openRecipientForm(model.selectedConfigIndex)
+			return
+		}
+		model.actionMode = false
+		model.push(screenConfirmRecipientDelete)
+		return
+	}
+	if model.actionCursor == 0 {
+		model.actionMode = false
+		model.openContactForm(model.selectedConfigIndex)
+		return
+	}
+	model.actionMode = false
+	model.push(screenConfirmContactDelete)
+}
+
+// inlineActionView renders contextual actions beneath the selected row.
+func (model Model) inlineActionView() string {
+	if !model.actionMode {
+		return ""
+	}
+	lines := []string{"", mutedStyle.Render("Actions  ←/→ choose  ·  Enter activate  ·  Esc close")}
+	for index, label := range model.inlineActionLabels() {
+		line := "  " + label
+		if index == model.actionCursor {
+			line = selectedStyle.Render("› " + label)
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
 // updateHome moves through the dashboard and opens its selected workflow.
 func (model Model) updateHome(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	model.moveCursor(key, 7)
@@ -327,6 +523,7 @@ func (model Model) updateHome(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case 3:
 		model.openInvoices()
 	case 4:
+		model.workspaceArea = workspacePresets
 		model.push(screenPresets)
 	case 5:
 		model.openSettings()
@@ -336,29 +533,79 @@ func (model Model) updateHome(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return model, nil
 }
 
-// updateForm applies shared form movement, adjustment, and editing behavior.
-func (model *Model) updateForm(key tea.KeyMsg, submit func()) {
-	if model.screen == screenTimeForm {
-		switch key.Type {
-		case tea.KeyLeft:
-			model.moveFormCursor(-1)
-		case tea.KeyRight:
-			model.moveFormCursor(1)
-		case tea.KeyUp:
-			model.adjustField(1)
-		case tea.KeyDown:
-			model.adjustField(-1)
-		case tea.KeyEnter:
-			if model.cursor == len(model.fields)-1 && model.fields[model.cursor].kind == fieldAction {
-				submit()
-				return
-			}
-			model.beginEdit()
-		}
+// loadOverview refreshes the entries shown on the landing workspace.
+func (model *Model) loadOverview() {
+	if model.application == nil {
 		return
 	}
-	model.moveCursor(key, len(model.fields))
+	from := time.Date(model.now.Year(), model.now.Month(), model.now.Day(), 0, 0, 0, 0, model.now.Location())
+	entries, err := model.application.Store.ListTimeEntries(context.Background(), from, from.AddDate(0, 0, 1), false)
+	if err != nil {
+		model.setError(err)
+		return
+	}
+	model.overviewEntries = entries
+}
+
+// isRootScreen identifies screens that participate in workspace navigation.
+func isRootScreen(active screen) bool {
+	switch active {
+	case screenHome, screenTimeEntries, screenInvoices, screenPresets, screenSettings:
+		return true
+	default:
+		return false
+	}
+}
+
+// handleWorkspaceNavigation switches root workspaces with horizontal arrows.
+func (model *Model) handleWorkspaceNavigation(key tea.KeyMsg) bool {
+	if !isRootScreen(model.screen) || (key.Type != tea.KeyLeft && key.Type != tea.KeyRight) {
+		return false
+	}
+	if model.screen == screenTimeEntries && model.cursor < 2 {
+		return false
+	}
+	direction := 1
+	if key.Type == tea.KeyLeft {
+		direction = -1
+	}
+	area := (model.workspaceArea + direction + 5) % 5
+	model.openWorkspaceArea(area)
+	return true
+}
+
+// openWorkspaceArea switches to a root workspace and refreshes its content.
+func (model *Model) openWorkspaceArea(area int) {
+	model.workspaceArea = area
+	model.actionMode, model.actionCursor = false, 0
+	model.editing, model.fields = false, nil
+	model.stack = nil
+	model.status, model.statusError = "", false
+	switch area {
+	case workspaceOverview:
+		model.screen, model.cursor = screenHome, 0
+		model.loadOverview()
+	case workspaceTime:
+		model.screen, model.cursor = screenTimeEntries, 2
+		model.makeTimeEntryRangeFields()
+		model.loadTimeEntries()
+	case workspaceInvoices:
+		model.screen, model.cursor = screenInvoices, 0
+		model.loadInvoices()
+	case workspacePresets:
+		model.screen, model.cursor = screenPresets, 0
+	case workspaceSettings:
+		model.screen, model.cursor = screenSettings, 0
+	}
+}
+
+// updateForm applies shared form movement, adjustment, and editing behavior.
+func (model *Model) updateForm(key tea.KeyMsg, submit func()) {
 	switch key.Type {
+	case tea.KeyUp:
+		model.moveFormCursor(-1)
+	case tea.KeyDown:
+		model.moveFormCursor(1)
 	case tea.KeyLeft:
 		model.adjustField(-1)
 	case tea.KeyRight:
@@ -523,7 +770,7 @@ func (model *Model) adjustField(direction int) {
 	}
 }
 
-// moveFormCursor uses horizontal arrows so vertical arrows remain available to spin values.
+// moveFormCursor uses vertical arrows so horizontal arrows remain available to adjust values.
 func (model *Model) moveFormCursor(direction int) {
 	if len(model.fields) == 0 {
 		model.cursor = 0
@@ -571,6 +818,7 @@ func (model *Model) moveCursor(key tea.KeyMsg, count int) {
 func (model *Model) push(next screen) {
 	model.stack = append(model.stack, location{screen: model.screen, cursor: model.cursor, fields: cloneFields(model.fields)})
 	model.screen, model.cursor, model.fields = next, 0, nil
+	model.actionMode, model.actionCursor = false, 0
 	model.status, model.statusError = "", false
 }
 
@@ -581,7 +829,14 @@ func (model *Model) back() {
 		model.status, model.statusError = "", false
 		return
 	}
+	if model.actionMode {
+		model.actionMode, model.actionCursor = false, 0
+		return
+	}
 	if len(model.stack) == 0 {
+		if model.screen != screenHome {
+			model.openWorkspaceArea(workspaceOverview)
+		}
 		return
 	}
 	last := model.stack[len(model.stack)-1]
@@ -590,10 +845,18 @@ func (model *Model) back() {
 	model.fields = cloneFields(last.fields)
 	model.editing = false
 	switch model.screen {
+	case screenHome:
+		model.workspaceArea = workspaceOverview
 	case screenTimeEntries:
+		model.workspaceArea = workspaceTime
 		model.loadTimeEntries()
 	case screenInvoices:
+		model.workspaceArea = workspaceInvoices
 		model.loadInvoices()
+	case screenPresets, screenRates, screenDescriptions:
+		model.workspaceArea = workspacePresets
+	case screenSettings, screenSettingsForm, screenRecipients, screenContacts:
+		model.workspaceArea = workspaceSettings
 	}
 }
 
@@ -608,6 +871,7 @@ func cloneFields(fields []field) []field {
 
 // openTimeForm loads defaults or an existing entry into the shared time form.
 func (model *Model) openTimeForm(entry *domain.TimeEntry) {
+	model.workspaceArea = workspaceTime
 	model.push(screenTimeForm)
 	descriptionChoices, rateChoices := model.loadPresetChoices()
 	date, start, startPeriod := model.now.Format("2006-01-02"), "", "AM"
@@ -750,6 +1014,7 @@ func (model *Model) saveTimeEntry() {
 		return
 	}
 	message := model.status
+	model.workspaceArea = workspaceTime
 	model.screen = screenTimeEntries
 	model.stack = []location{{screen: screenHome, cursor: 1}}
 	model.cursor = 3
@@ -823,6 +1088,7 @@ func formatInterval(duration time.Duration) string {
 
 // openTimeEntries shows today's entries and range controls.
 func (model *Model) openTimeEntries() {
+	model.workspaceArea = workspaceTime
 	model.push(screenTimeEntries)
 	model.makeTimeEntryRangeFields()
 	model.loadTimeEntries()
@@ -878,7 +1144,7 @@ func (model *Model) updateTimeEntries(key tea.KeyMsg) {
 		return
 	}
 	model.selectedEntryID = model.entries[model.cursor-3].ID
-	model.push(screenTimeEntryActions)
+	model.actionMode, model.actionCursor = true, 0
 }
 
 // updateTimeEntryActions opens edit/delete actions for one row.
@@ -927,6 +1193,7 @@ func (model *Model) updateTimeDeleteConfirmation(key tea.KeyMsg) {
 
 // openInvoiceRange starts the guided invoice flow with today's dates.
 func (model *Model) openInvoiceRange() {
+	model.workspaceArea = workspaceInvoices
 	model.push(screenInvoiceRange)
 	today := model.now.Format("2006-01-02")
 	model.fields = []field{
@@ -1091,6 +1358,7 @@ func (model *Model) updateInvoiceReview(key tea.KeyMsg) {
 		return
 	}
 	message := model.status
+	model.workspaceArea = workspaceInvoices
 	model.screen, model.stack, model.cursor = screenInvoices, []location{{screen: screenHome, cursor: 3}}, 0
 	model.loadInvoices()
 	model.status = message
@@ -1107,6 +1375,7 @@ func joinIDs(ids []int64) string {
 
 // openInvoices loads generated invoice history.
 func (model *Model) openInvoices() {
+	model.workspaceArea = workspaceInvoices
 	model.push(screenInvoices)
 	model.loadInvoices()
 }
@@ -1126,7 +1395,7 @@ func (model *Model) updateInvoices(key tea.KeyMsg) {
 	model.moveCursor(key, len(model.invoices))
 	if key.Type == tea.KeyEnter && len(model.invoices) > 0 {
 		model.selectedInvoice = model.invoices[model.cursor].ID
-		model.push(screenInvoiceActions)
+		model.actionMode, model.actionCursor = true, 0
 	}
 }
 
@@ -1155,8 +1424,10 @@ func (model *Model) updateSimpleMenu(key tea.KeyMsg, count int, open func()) {
 func (model *Model) openPresetSelection() {
 	switch model.cursor {
 	case 0:
+		model.workspaceArea = workspacePresets
 		model.push(screenRates)
 	case 1:
+		model.workspaceArea = workspacePresets
 		model.push(screenDescriptions)
 	case 2:
 		model.back()
@@ -1179,11 +1450,12 @@ func (model *Model) updateRates(key tea.KeyMsg) {
 		return
 	}
 	model.selectedRate = presets[model.cursor-1].ID
-	model.push(screenRateActions)
+	model.actionMode, model.actionCursor = true, 0
 }
 
 // openRateForm creates fields for adding or editing a reusable price.
 func (model *Model) openRateForm(preset *domain.RatePreset) {
+	model.workspaceArea = workspacePresets
 	model.push(screenRateForm)
 	label, amount, currency := "", "", model.application.Config.Currency
 	model.selectedRate = 0
@@ -1284,11 +1556,12 @@ func (model *Model) updateDescriptions(key tea.KeyMsg) {
 		return
 	}
 	model.selectedDescription = presets[model.cursor-1].ID
-	model.push(screenDescriptionActions)
+	model.actionMode, model.actionCursor = true, 0
 }
 
 // openDescriptionForm creates fields for adding or editing reusable text.
 func (model *Model) openDescriptionForm(preset *domain.DescriptionPreset) {
+	model.workspaceArea = workspacePresets
 	model.push(screenDescriptionForm)
 	label := ""
 	model.selectedDescription = 0
@@ -1377,7 +1650,10 @@ func (model *Model) leaveTwoScreens(target screen, message string) {
 }
 
 // openSettings opens the four configuration groups.
-func (model *Model) openSettings() { model.push(screenSettings) }
+func (model *Model) openSettings() {
+	model.workspaceArea = workspaceSettings
+	model.push(screenSettings)
+}
 
 // updateSettings opens sender, recipient, contact, or invoice-default management.
 func (model *Model) updateSettings(key tea.KeyMsg) {
@@ -1401,6 +1677,7 @@ func (model *Model) updateSettings(key tea.KeyMsg) {
 
 // openSettingsForm loads either sender or invoice-default values.
 func (model *Model) openSettingsForm(defaults bool) {
+	model.workspaceArea = workspaceSettings
 	model.push(screenSettingsForm)
 	model.settingsDefaults = defaults
 	cfg := model.application.Config
@@ -1452,11 +1729,12 @@ func (model *Model) updateRecipients(key tea.KeyMsg) {
 		return
 	}
 	model.selectedConfigIndex = model.cursor - 1
-	model.push(screenRecipientActions)
+	model.actionMode, model.actionCursor = true, 0
 }
 
 // openRecipientForm creates fields for a new or existing recipient.
 func (model *Model) openRecipientForm(index int) {
+	model.workspaceArea = workspaceSettings
 	model.push(screenRecipientForm)
 	model.selectedConfigIndex = index
 	recipient := config.Recipient{}
@@ -1535,11 +1813,12 @@ func (model *Model) updateContacts(key tea.KeyMsg) {
 		return
 	}
 	model.selectedConfigIndex = model.cursor - 1
-	model.push(screenContactActions)
+	model.actionMode, model.actionCursor = true, 0
 }
 
 // openContactForm creates fields for a new or existing contact.
 func (model *Model) openContactForm(index int) {
+	model.workspaceArea = workspaceSettings
 	model.push(screenContactForm)
 	model.selectedConfigIndex = index
 	contact := config.Contact{}
@@ -1656,7 +1935,7 @@ func (model Model) View() string {
 	if panelWidth > 92 {
 		panelWidth = 92
 	}
-	header := accentStyle.Render("EZ INVOICE") + mutedStyle.Render("  ·  local time & billing")
+	header := accentStyle.Render("EZ INVOICE") + mutedStyle.Render("  ·  local time & billing  ") + model.workspaceNavView()
 	breadcrumb := mutedStyle.Render(model.breadcrumb())
 	body := panelStyle.Width(panelWidth).Render(model.screenView())
 	footer := mutedStyle.Render(model.helpText())
@@ -1671,23 +1950,37 @@ func (model Model) View() string {
 	return strings.Join([]string{header, breadcrumb, "", body, status, "", footer}, "\n")
 }
 
+// workspaceNavView renders the active root area without adding vertical layout cost.
+func (model Model) workspaceNavView() string {
+	labels := []string{"Overview", "Time", "Invoices", "Presets", "Settings"}
+	lines := make([]string, len(labels))
+	for index, label := range labels {
+		if index == model.workspaceArea {
+			lines[index] = selectedStyle.Render(label)
+		} else {
+			lines[index] = mutedStyle.Render(label)
+		}
+	}
+	return strings.Join(lines, mutedStyle.Render(" · "))
+}
+
 // breadcrumb identifies the active workflow.
 func (model Model) breadcrumb() string {
 	names := map[screen]string{
-		screenHome: "Home", screenTimeForm: "Home / Time Entry", screenTimeConfirm: "Home / Time Entry / Confirm", screenTimeEntries: "Home / Time Entries",
+		screenHome: "Overview", screenTimeForm: "Overview / Time Entry", screenTimeConfirm: "Overview / Time Entry / Confirm", screenTimeEntries: "Time",
 		screenTimeEntryActions: "Home / Time Entries / Entry", screenConfirmTimeDelete: "Home / Time Entries / Delete",
-		screenInvoiceRange: "Home / Build Invoice / Dates", screenInvoiceEntries: "Home / Build Invoice / Entries",
-		screenInvoiceMetadata: "Home / Build Invoice / Details", screenInvoiceReview: "Home / Build Invoice / Review",
-		screenInvoices: "Home / Invoices", screenInvoiceActions: "Home / Invoices / Invoice",
-		screenPresets: "Home / Presets", screenRates: "Home / Presets / Rates", screenRateForm: "Home / Presets / Rates / Edit",
+		screenInvoiceRange: "Invoices / Build / Dates", screenInvoiceEntries: "Invoices / Build / Entries",
+		screenInvoiceMetadata: "Invoices / Build / Details", screenInvoiceReview: "Invoices / Build / Review",
+		screenInvoices: "Invoices", screenInvoiceActions: "Invoices / Invoice",
+		screenPresets: "Presets", screenRates: "Presets / Rates", screenRateForm: "Presets / Rates / Edit",
 		screenRateActions: "Home / Presets / Rates / Actions", screenConfirmRateToggle: "Home / Presets / Rates / Disable",
 		screenDescriptions: "Home / Presets / Descriptions", screenDescriptionForm: "Home / Presets / Descriptions / Edit",
 		screenDescriptionActions: "Home / Presets / Descriptions / Actions", screenConfirmDescriptionToggle: "Home / Presets / Descriptions / Disable",
-		screenSettings: "Home / Settings", screenSettingsForm: "Home / Settings / Edit", screenRecipients: "Home / Settings / Recipients",
-		screenRecipientForm: "Home / Settings / Recipients / Edit", screenRecipientActions: "Home / Settings / Recipients / Actions",
-		screenConfirmRecipientDelete: "Home / Settings / Recipients / Delete", screenContacts: "Home / Settings / Contacts",
-		screenContactForm: "Home / Settings / Contacts / Edit", screenContactActions: "Home / Settings / Contacts / Actions",
-		screenConfirmContactDelete: "Home / Settings / Contacts / Delete",
+		screenSettings: "Settings", screenSettingsForm: "Settings / Edit", screenRecipients: "Settings / Recipients",
+		screenRecipientForm: "Settings / Recipients / Edit", screenRecipientActions: "Settings / Recipients / Actions",
+		screenConfirmRecipientDelete: "Settings / Recipients / Delete", screenContacts: "Settings / Contacts",
+		screenContactForm: "Settings / Contacts / Edit", screenContactActions: "Settings / Contacts / Actions",
+		screenConfirmContactDelete: "Settings / Contacts / Delete",
 	}
 	return names[model.screen]
 }
@@ -1748,11 +2041,46 @@ func (model Model) screenView() string {
 	return ""
 }
 
-// homeView renders the short task-oriented dashboard.
+// homeView renders the overview summary and direct keyboard actions.
 func (model Model) homeView() string {
-	return model.menuView("What would you like to do?",
-		[]string{"Add Time", "Time Entries", "Build Invoice", "Invoices", "Presets", "Settings", "Quit"},
-		[]string{"Record a billable interval", "Review, edit, or remove work", "Select work and create a PDF", "Browse and export past invoices", "Manage reusable rates and descriptions", "Update invoice defaults", "Close ez-invoice"})
+	currency := "USD"
+	if model.application != nil {
+		currency = model.application.Config.Currency
+	}
+	var hours float64
+	var total int64
+	for _, entry := range model.overviewEntries {
+		hours += entry.Hours
+		total += entry.LineTotalCents()
+	}
+	lines := []string{accentStyle.Render("Overview") + mutedStyle.Render("  ·  "+model.now.Format("Mon, Jan 2, 2006"))}
+	lines = append(lines, fmt.Sprintf("  %s %s    %s %s", valueStyle.Render("TODAY"), successStyle.Render(formatInterval(time.Duration(hours*float64(time.Hour)))), valueStyle.Render("UNBILLED"), successStyle.Render(currency+" "+domain.FormatMoney(total))))
+	lines = append(lines, mutedStyle.Render("Recent work"))
+	if len(model.overviewEntries) == 0 {
+		lines = append(lines, mutedStyle.Render("  No time entries today."))
+	} else {
+		start := 0
+		if len(model.overviewEntries) > 2 {
+			start = len(model.overviewEntries) - 2
+		}
+		for _, entry := range model.overviewEntries[start:] {
+			lines = append(lines, fmt.Sprintf("  %-8s %-28s %s %s", entry.StartAt.Local().Format("15:04"), truncate(entry.Description, 28), entry.Currency, domain.FormatMoney(entry.LineTotalCents())))
+		}
+	}
+	lines = append(lines, accentStyle.Render("Quick actions"))
+	labels := []string{"Add Time", "Time Entries", "Build Invoice", "Invoices", "Presets", "Settings", "Quit"}
+	descriptions := []string{"Record a billable interval", "Review, edit, or remove work", "Select work and create a PDF", "Browse and export past invoices", "Manage reusable rates and descriptions", "Update invoice defaults", "Close ez-invoice"}
+	for index, label := range labels {
+		line := "  " + label
+		if index == model.cursor {
+			line = selectedStyle.Render("› " + label)
+		}
+		lines = append(lines, line)
+	}
+	if model.cursor >= 0 && model.cursor < len(descriptions) {
+		lines = append(lines, mutedStyle.Render(descriptions[model.cursor]))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // menuView renders a selected menu item and its contextual description.
@@ -1783,7 +2111,11 @@ func (model Model) formView() string {
 			titles[screenSettingsForm] = "Invoice Defaults"
 		}
 	}
-	lines := []string{accentStyle.Render(titles[model.screen]), ""}
+	title := titles[model.screen]
+	if model.screen == screenInvoiceRange || model.screen == screenInvoiceEntries || model.screen == screenInvoiceMetadata || model.screen == screenInvoiceReview {
+		title += "  ·  Dates › Entries › Details › Review"
+	}
+	lines := []string{accentStyle.Render(title), ""}
 	for index, item := range model.fields {
 		value := item.displayValue()
 		if item.kind == fieldAction {
@@ -1873,12 +2205,15 @@ func (model Model) timeEntriesView() string {
 		}
 		lines = append(lines, line)
 	}
+	if actions := model.inlineActionView(); actions != "" {
+		lines = append(lines, actions)
+	}
 	return strings.Join(lines, "\n")
 }
 
 // invoiceEntriesView renders checkbox rows and the guided Continue action.
 func (model Model) invoiceEntriesView() string {
-	lines := []string{accentStyle.Render("Choose time entries"), mutedStyle.Render("All eligible rows start selected."), ""}
+	lines := []string{accentStyle.Render("Choose time entries  ·  Dates › Entries › Details › Review"), mutedStyle.Render("All eligible rows start selected."), ""}
 	selected := model.cursor
 	if selected == len(model.invoiceEntries) {
 		selected--
@@ -1911,7 +2246,7 @@ func (model Model) invoiceEntriesView() string {
 
 // invoiceReviewView renders calculated totals and the final action.
 func (model Model) invoiceReviewView() string {
-	lines := []string{accentStyle.Render("Review invoice"), ""}
+	lines := []string{accentStyle.Render("Review invoice  ·  Dates › Entries › Details › Review"), ""}
 	selected := model.cursor
 	if selected >= len(model.invoicePreview.Entries) {
 		selected = len(model.invoicePreview.Entries) - 1
@@ -1959,6 +2294,9 @@ func (model Model) invoicesView() string {
 			line = "  " + line
 		}
 		lines = append(lines, line)
+	}
+	if actions := model.inlineActionView(); actions != "" {
+		lines = append(lines, actions)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -2023,6 +2361,9 @@ func (model Model) ratesView() string {
 	if len(presets) == 0 {
 		lines = append(lines, mutedStyle.Render("    No rate presets yet."))
 	}
+	if actions := model.inlineActionView(); actions != "" {
+		lines = append(lines, actions)
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -2055,6 +2396,9 @@ func (model Model) descriptionsView() string {
 	}
 	if len(presets) == 0 {
 		lines = append(lines, mutedStyle.Render("  No description presets yet."))
+	}
+	if actions := model.inlineActionView(); actions != "" {
+		lines = append(lines, actions)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -2098,6 +2442,9 @@ func (model Model) recipientsView() string {
 		}
 		lines = append(lines, line)
 	}
+	if actions := model.inlineActionView(); actions != "" {
+		lines = append(lines, actions)
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -2123,6 +2470,9 @@ func (model Model) contactsView() string {
 		}
 		lines = append(lines, line)
 	}
+	if actions := model.inlineActionView(); actions != "" {
+		lines = append(lines, actions)
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -2131,11 +2481,20 @@ func (model Model) helpText() string {
 	if model.editing {
 		return "Type to edit  ·  ←/→ move cursor  ·  Enter accept  ·  Esc cancel"
 	}
-	if model.screen == screenHome {
-		return "↑/↓ navigate  ·  Enter open  ·  Ctrl+C quit"
+	if model.actionMode {
+		return "←/→ choose action  ·  Enter activate  ·  Esc close  ·  Ctrl+C quit"
 	}
-	if model.screen == screenTimeForm {
-		return "←/→ fields  ·  ↑/↓ adjust  ·  Enter type/review  ·  Esc back  ·  Ctrl+C quit"
+	if model.screen == screenHome {
+		return "←/→ areas  ·  ↑/↓ quick actions  ·  Enter open  ·  Ctrl+C quit"
+	}
+	if model.screen == screenTimeEntries && model.cursor < 2 {
+		return "←/→ adjust date  ·  ↑/↓ rows  ·  Enter edit  ·  Esc back  ·  Ctrl+C quit"
+	}
+	if model.screen == screenTimeForm || model.screen == screenInvoiceRange || model.screen == screenInvoiceMetadata || model.screen == screenRateForm || model.screen == screenDescriptionForm || model.screen == screenSettingsForm || model.screen == screenRecipientForm || model.screen == screenContactForm {
+		return "↑/↓ fields  ·  ←/→ adjust  ·  Enter type/save  ·  Esc back  ·  Ctrl+C quit"
+	}
+	if isRootScreen(model.screen) {
+		return "←/→ areas  ·  ↑/↓ rows  ·  Enter select  ·  Esc overview  ·  Ctrl+C quit"
 	}
 	return "↑/↓ navigate  ·  ←/→ adjust  ·  Enter select/edit  ·  Esc back  ·  Ctrl+C quit"
 }

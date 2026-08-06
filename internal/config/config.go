@@ -48,8 +48,11 @@ type Config struct {
 // Default returns the first-run configuration.
 func Default(dataDir string) Config {
 	return Config{
-		Recipients:        []Recipient{{}},
+		Sender:            Sender{FullName: "Jairik McCauley", Address: "11223 Gehr Rd, Big Pool MD 21711", Email: "mjairik@gmail.com"},
+		Recipients:        []Recipient{{CompanyName: "Tenaxiom Technology, Inc", Address: "7459 Digby Grn\nAlexandria, VA 22315"}},
+		Contacts:          []Contact{{Name: "Amy Marden", Email: "amy.marden@tenaxiom.tech"}, {Name: "Tito Torres", Email: "tito.torres@tenaxiom.tech"}},
 		PayableTerms:      "Net 15",
+		LogoPath:          DefaultLogoPath(dataDir),
 		Currency:          "USD",
 		OutputDir:         filepath.Join(dataDir, "invoices"),
 		Notes:             "None",
@@ -110,12 +113,30 @@ func Save(path string, cfg Config) error {
 func Ensure(path, dataDir string) (Config, bool, error) {
 	cfg, err := Load(path)
 	if err == nil {
+		changed := false
+		if cfg.LogoPath == "" {
+			cfg.LogoPath = DefaultLogoPath(dataDir)
+			changed = true
+		}
+		if cfg.LogoPath == DefaultLogoPath(dataDir) {
+			if err := ensureDefaultLogo(cfg.LogoPath); err != nil {
+				return Config{}, false, err
+			}
+		}
+		if changed {
+			if err := Save(path, cfg); err != nil {
+				return Config{}, false, err
+			}
+		}
 		return cfg, false, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return Config{}, false, err
 	}
 	cfg = Default(dataDir)
+	if err := ensureDefaultLogo(cfg.LogoPath); err != nil {
+		return Config{}, false, err
+	}
 	if err := Save(path, cfg); err != nil {
 		return Config{}, false, err
 	}

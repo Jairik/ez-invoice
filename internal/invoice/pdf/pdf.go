@@ -56,41 +56,77 @@ func Render(invoice domain.Invoice, path string) error {
 	return nil
 }
 
-// renderHeader draws the optional logo and primary invoice metadata.
+// renderHeader draws the logo, title, submission date, and sender block.
 func renderHeader(document *fpdf.Fpdf, invoice domain.Invoice) {
 	if invoice.LogoPath != "" {
-		document.Image(invoice.LogoPath, 15, 15, 35, 0, false, "", 0, "")
+		document.Image(invoice.LogoPath, 137, 15, 64, 0, false, "", 0, "")
 	}
+	document.SetTextColor(19, 66, 101)
 	document.SetFont("Arial", "B", 24)
-	document.CellFormat(0, 10, "INVOICE", "", 1, "R", false, 0, "")
+	document.SetXY(15, 15)
+	document.CellFormat(105, 10, "Invoice", "", 1, "L", false, 0, "")
+	document.SetTextColor(128, 128, 128)
+	document.SetFont("Arial", "B", 10)
+	document.SetXY(15, 28)
+	document.CellFormat(105, 5, "Submitted on "+invoice.SubmittedDate.Format("01/02/2006"), "", 1, "L", false, 0, "")
+	document.SetTextColor(70, 70, 70)
+	document.SetFont("Arial", "B", 10)
+	document.SetXY(15, 38)
+	document.CellFormat(105, 6, "Invoice From", "", 1, "L", false, 0, "")
+	document.SetTextColor(0, 0, 0)
 	document.SetFont("Arial", "", 10)
-	document.CellFormat(0, 5, "Invoice #: "+invoice.DisplayNumber(), "", 1, "R", false, 0, "")
-	document.CellFormat(0, 5, "Submitted: "+invoice.SubmittedDate.Format("2006-01-02"), "", 1, "R", false, 0, "")
-	document.CellFormat(0, 5, "Period: "+invoice.PeriodStart.Format("2006-01-02")+" to "+invoice.PeriodEnd.Format("2006-01-02"), "", 1, "R", false, 0, "")
-	document.CellFormat(0, 5, "Payable: "+invoice.PayableTerms, "", 1, "R", false, 0, "")
-	document.Ln(6)
+	document.SetXY(15, 44)
+	document.MultiCell(105, 5, strings.Join([]string{invoice.FromName, invoice.FromAddress, invoice.FromEmail}, "\n"), "", "L", false)
+	document.SetY(document.GetY() + 7)
 }
 
-// renderParties lays out sender, recipient, and contacts.
+// renderParties lays out the recipient, contacts, number, terms, and period.
 func renderParties(document *fpdf.Fpdf, invoice domain.Invoice) {
 	y := document.GetY()
-	document.SetFont("Arial", "B", 10)
-	document.CellFormat(90, 6, "FROM", "B", 0, "L", false, 0, "")
-	document.CellFormat(0, 6, "TO", "B", 1, "L", false, 0, "")
-	document.SetFont("Arial", "", 10)
-	document.SetXY(15, y+8)
-	document.MultiCell(85, 5, strings.Join([]string{invoice.FromName, invoice.FromAddress, invoice.FromEmail}, "\n"), "", "L", false)
-	leftBottom := document.GetY()
-	document.SetXY(105, y+8)
-	document.MultiCell(90, 5, strings.Join([]string{invoice.ToCompany, invoice.ToAddress}, "\n"), "", "L", false)
+	contactLines := make([]string, 0, len(invoice.Contacts)*2)
 	for _, contact := range invoice.Contacts {
-		document.SetX(105)
-		document.MultiCell(90, 5, contact.Name+" <"+contact.Email+">", "", "L", false)
+		contactLines = append(contactLines, contact.Name, contact.Email)
 	}
-	if document.GetY() < leftBottom {
-		document.SetY(leftBottom)
+
+	document.SetTextColor(70, 70, 70)
+	document.SetFont("Arial", "B", 10)
+	document.SetXY(15, y)
+	document.CellFormat(65, 6, "Invoice To", "", 0, "L", false, 0, "")
+	document.SetXY(90, y)
+	document.CellFormat(65, 6, "Point of Contact", "", 0, "L", false, 0, "")
+	document.SetXY(160, y)
+	document.CellFormat(41, 6, "Invoice #", "", 1, "L", false, 0, "")
+
+	bodyY := y + 8
+	document.SetTextColor(0, 0, 0)
+	document.SetFont("Arial", "", 9)
+	document.SetXY(15, bodyY)
+	document.MultiCell(65, 5, strings.Join([]string{invoice.ToCompany, invoice.ToAddress}, "\n"), "", "L", false)
+	toBottom := document.GetY()
+	document.SetXY(90, bodyY)
+	document.MultiCell(65, 5, strings.Join(contactLines, "\n"), "", "L", false)
+	contactsBottom := document.GetY()
+	document.SetXY(160, bodyY)
+	document.CellFormat(41, 5, invoice.DisplayNumber(), "", 1, "L", false, 0, "")
+
+	secondaryY := toBottom
+	if contactsBottom > secondaryY {
+		secondaryY = contactsBottom
 	}
-	document.Ln(7)
+	secondaryY += 4
+	document.SetTextColor(70, 70, 70)
+	document.SetFont("Arial", "B", 10)
+	document.SetXY(90, secondaryY)
+	document.CellFormat(65, 6, "Payable", "", 0, "L", false, 0, "")
+	document.SetXY(160, secondaryY)
+	document.CellFormat(41, 6, "Period", "", 1, "L", false, 0, "")
+	document.SetTextColor(0, 0, 0)
+	document.SetFont("Arial", "", 9)
+	document.SetXY(90, secondaryY+8)
+	document.CellFormat(65, 5, invoice.PayableTerms, "", 1, "L", false, 0, "")
+	document.SetXY(160, secondaryY+8)
+	document.CellFormat(41, 5, invoice.PeriodStart.Format("1/2")+" - "+invoice.PeriodEnd.Format("1/2"), "", 1, "L", false, 0, "")
+	document.SetY(secondaryY + 18)
 }
 
 // renderLineItems draws a compact table and repeats its header after page breaks.

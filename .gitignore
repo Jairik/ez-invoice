@@ -1,0 +1,9 @@
+# Ignore local application configuration and persistent data.
+config.toml
+invoices.db
+.ez-invoice/
+
+# Ignore generated invoice exports and local build artifacts.
+invoices/
+/ez-invoice
+/main
