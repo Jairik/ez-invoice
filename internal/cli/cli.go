@@ -72,7 +72,7 @@ func runInvoice(ctx context.Context, application *app.App, args []string, output
 			if err != nil {
 				return err
 			}
-			printInvoicePreview(output, application.Config.Currency, preview)
+			printInvoicePreview(output, application.Config().Currency, preview)
 			return nil
 		}
 		invoice, err := application.FinalizeInvoice(ctx, options)
@@ -80,7 +80,7 @@ func runInvoice(ctx context.Context, application *app.App, args []string, output
 			return err
 		}
 		if outputDir == "" {
-			outputDir = application.Config.OutputDir
+			outputDir = application.Config().OutputDir
 		}
 		path := filepath.Join(outputDir, invoicepdf.Filename(invoice))
 		if err := invoicepdf.Render(invoice, path); err != nil {
@@ -112,12 +112,15 @@ func runInvoice(ctx context.Context, application *app.App, args []string, output
 		if err != nil {
 			return err
 		}
-		flags := flag.NewFlagSet("invoice export", flag.ContinueOnError)
-		flags.SetOutput(errorsOutput)
-		outputDir := flags.String("output", application.Config.OutputDir, "export directory")
-		if err := flags.Parse(args[2:]); err != nil {
-			return err
-		}
+	flags := flag.NewFlagSet("invoice export", flag.ContinueOnError)
+	flags.SetOutput(errorsOutput)
+	outputDir := flags.String("output", application.Config().OutputDir, "export directory")
+	if err := flags.Parse(args[2:]); err != nil {
+		return err
+	}
+	if err := rejectExtraArgs(flags); err != nil {
+		return err
+	}
 		invoice, err := application.Store.GetInvoice(ctx, id)
 		if err != nil {
 			return err
@@ -154,6 +157,9 @@ func parseInvoiceFlags(args []string, errorsOutput io.Writer) (app.InvoiceOption
 	var contacts stringList
 	flags.Var(&contacts, "contact", "contact override as Name|email (repeatable)")
 	if err := flags.Parse(args); err != nil {
+		return app.InvoiceOptions{}, "", err
+	}
+	if err := rejectExtraArgs(flags); err != nil {
 		return app.InvoiceOptions{}, "", err
 	}
 	includeProvided := false
@@ -254,13 +260,21 @@ func (values *stringList) Set(value string) error {
 	return nil
 }
 
+// rejectExtraArgs fails commands that received trailing positional arguments.
+func rejectExtraArgs(flags *flag.FlagSet) error {
+	if extra := flags.Args(); len(extra) > 0 {
+		return fmt.Errorf("unexpected argument %q", extra[0])
+	}
+	return nil
+}
+
 // runConfig shows and edits the centralized TOML configuration.
 func runConfig(application *app.App, args []string, output io.Writer) error {
 	if len(args) == 0 || args[0] == "show" {
-		printConfig(output, application.Config)
+		printConfig(output, application.Config())
 		return nil
 	}
-	cfg := application.Config
+	cfg := application.Config()
 	switch args[0] {
 	case "set":
 		if len(args) < 3 {
@@ -340,7 +354,7 @@ func runConfig(application *app.App, args []string, output io.Writer) error {
 	if err := config.Save(application.Paths.ConfigFile, cfg); err != nil {
 		return err
 	}
-	application.Config = cfg
+	application.SetConfig(cfg)
 	fmt.Fprintln(output, "config saved")
 	return nil
 }
@@ -359,7 +373,7 @@ func runRate(ctx context.Context, application *app.App, args []string, output io
 		if err != nil || amount < 0 {
 			return errors.New("rate amount must be a non-negative decimal")
 		}
-		currency := application.Config.Currency
+		currency := application.Config().Currency
 		if len(args) == 4 {
 			currency = args[3]
 		}
@@ -524,6 +538,9 @@ func runTime(ctx context.Context, application *app.App, args []string, output, e
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
+		if err := rejectExtraArgs(flags); err != nil {
+			return err
+		}
 		from, to, err := parseDateRange(*fromText, *toText)
 		if err != nil {
 			return err
@@ -572,11 +589,14 @@ func parseTimeEntryFlags(ctx context.Context, application *app.App, args []strin
 	end := flags.String("end", formatOptionalTime(entry.EndAt), "end datetime")
 	description := flags.String("description", entry.Description, "description")
 	rate := flags.String("rate", optionalMoney(entry), "unit rate")
-	currency := flags.String("currency", defaultText(entry.Currency, application.Config.Currency), "currency")
+	currency := flags.String("currency", defaultText(entry.Currency, application.Config().Currency), "currency")
 	notes := flags.String("notes", entry.Notes, "notes")
 	descriptionPreset := flags.Int64("description-preset", 0, "description preset ID")
 	ratePreset := flags.Int64("rate-preset", 0, "rate preset ID")
 	if err := flags.Parse(args); err != nil {
+		return domain.TimeEntry{}, err
+	}
+	if err := rejectExtraArgs(flags); err != nil {
 		return domain.TimeEntry{}, err
 	}
 	changed := map[string]bool{}
@@ -647,6 +667,7 @@ func printConfig(output io.Writer, cfg config.Config) {
 // printHelp lists the command surface shared with the TUI console.
 func printHelp(output io.Writer) {
 	fmt.Fprintln(output, `ez-invoice commands:
+  serve|web [ADDR]        start the web interface
   config show|set|contact|recipient
   rate add|update|list|delete|restore
   description add|update|list|delete|restore

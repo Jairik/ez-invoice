@@ -1,0 +1,131 @@
+{{define "content"}}
+<form method="post" action="/settings">
+  <header class="pagehead">
+    <div>
+      <p class="eyebrow">Writes to config.toml</p>
+      <h1 class="pagetitle">Settings</h1>
+    </div>
+    <div class="pagehead-actions">
+      <button type="submit" class="btn btn-primary">Save changes</button>
+    </div>
+  </header>
+
+  <div class="indexed" style="margin-top:32px">
+    <nav class="localnav" aria-label="Settings sections" data-localnav>
+      <a href="#sender">Sender</a>
+      <a href="#recipients">Recipients</a>
+      <a href="#contacts">Contacts</a>
+      <a href="#defaults">Invoice defaults</a>
+    </nav>
+
+    <div class="formstack">
+      <section id="sender">
+        <div class="section-head">
+          <h2 class="section-title">Sender</h2>
+          <span class="section-note section-note-plain">required before an invoice can be finalized</span>
+        </div>
+        <div class="formgrid formgrid-2" style="margin-top:20px">
+          <div class="field">
+            <label for="sender_name">Full name</label>
+            <input type="text" name="sender_name" id="sender_name" value="{{.Data.Config.Sender.FullName}}" autocomplete="name">
+          </div>
+          <div class="field">
+            <label for="sender_email">Email</label>
+            <input type="email" name="sender_email" id="sender_email" value="{{.Data.Config.Sender.Email}}" autocomplete="email" spellcheck="false">
+          </div>
+          <div class="field span-all">
+            <label for="sender_address">Address</label>
+            <input type="text" name="sender_address" id="sender_address" value="{{.Data.Config.Sender.Address}}" autocomplete="street-address">
+          </div>
+        </div>
+      </section>
+
+      <section id="recipients">
+        <div class="section-head">
+          <h2 class="section-title">Recipients</h2>
+          <span class="section-note section-note-plain">{{len .Data.Config.Recipients}} saved</span>
+        </div>
+        <div class="repeat" style="margin-top:18px">
+          {{range $index, $recipient := .Data.Config.Recipients}}
+          <div class="repeat-row">
+            {{if gt (len $.Data.Config.Recipients) 1}}
+            <label class="check"><input type="checkbox" name="recipient_delete" value="{{$index}}"><span class="sr-only">Remove {{$recipient.CompanyName}}</span></label>
+            {{else}}<span></span>{{end}}
+            <input type="text" name="recipient_company" value="{{$recipient.CompanyName}}" placeholder="Company" aria-label="Recipient company">
+            <input type="text" name="recipient_address" value="{{$recipient.Address}}" placeholder="Address" aria-label="Recipient address">
+          </div>
+          {{end}}
+          <details class="dashed">
+            <summary>+ Add a recipient</summary>
+            <div class="formgrid formgrid-2">
+              <div class="field"><label for="new_recipient_company">Company</label><input type="text" name="new_recipient_company" id="new_recipient_company" placeholder="Analytical Engines"></div>
+              <div class="field"><label for="new_recipient_address">Address</label><input type="text" name="new_recipient_address" id="new_recipient_address" placeholder="2 Difference Road, London"></div>
+            </div>
+          </details>
+          {{if gt (len .Data.Config.Recipients) 1}}<p class="footnote">Tick a row and save to remove it.</p>{{end}}
+        </div>
+      </section>
+
+      <section id="contacts">
+        <div class="section-head">
+          <h2 class="section-title">Contacts</h2>
+          <span class="section-note section-note-plain">name and valid email required</span>
+        </div>
+        <div class="repeat" style="margin-top:18px">
+          {{range $index, $contact := .Data.Config.Contacts}}
+          <div class="repeat-row">
+            <label class="check"><input type="checkbox" name="contact_delete" value="{{$index}}"><span class="sr-only">Remove {{$contact.Name}}</span></label>
+            <input type="text" name="contact_name" value="{{$contact.Name}}" placeholder="Name" aria-label="Contact name">
+            <div>
+              <input type="email" name="contact_email" value="{{$contact.Email}}" placeholder="Email" aria-label="Contact email" spellcheck="false">
+              <p class="field-error">Needs a valid address, e.g. accounts@example.com</p>
+            </div>
+          </div>
+          {{end}}
+          <details class="dashed">
+            <summary>+ Add a contact</summary>
+            <div class="formgrid formgrid-2">
+              <div class="field"><label for="new_contact_name">Name</label><input type="text" name="new_contact_name" id="new_contact_name" placeholder="Charles Babbage"></div>
+              <div class="field"><label for="new_contact_email">Email</label><input type="email" name="new_contact_email" id="new_contact_email" placeholder="charles@example.com" spellcheck="false"></div>
+            </div>
+          </details>
+          {{if .Data.Config.Contacts}}<p class="footnote">Tick a row and save to remove it.</p>{{end}}
+        </div>
+      </section>
+
+      <section id="defaults">
+        <div class="section-head">
+          <h2 class="section-title">Invoice defaults</h2>
+          <span class="section-note section-note-plain">applied to new invoices only</span>
+        </div>
+        <div class="formgrid formgrid-3" style="margin-top:20px">
+          <div class="field">
+            <label for="terms">Payable terms</label>
+            <input type="text" name="terms" id="terms" value="{{.Data.Config.PayableTerms}}">
+          </div>
+          <div class="field">
+            <label for="currency">Currency</label>
+            <input type="text" name="currency" id="currency" value="{{.Data.Config.Currency}}">
+          </div>
+          <div class="field">
+            <label for="adjustment">Default adjustment</label>
+            <input type="text" name="adjustment" id="adjustment" inputmode="decimal" value="{{.Data.Config.DefaultAdjustment}}">
+          </div>
+          <div class="field span-2">
+            <label for="output">Output directory</label>
+            <input type="text" name="output" id="output" value="{{.Data.Config.OutputDir}}">
+          </div>
+          <div class="field">
+            <label for="logo">Logo path</label>
+            <input type="text" name="logo" id="logo" value="{{.Data.Config.LogoPath}}" placeholder="not set">
+          </div>
+          <div class="field span-all">
+            <label for="notes">Default notes</label>
+            <textarea name="notes" id="notes" rows="2">{{.Data.Config.Notes}}</textarea>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</form>
+{{end}}

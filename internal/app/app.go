@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/Jairik/ez-invoice/internal/config"
 	"github.com/Jairik/ez-invoice/internal/store/sqlite"
@@ -20,8 +21,23 @@ type Paths struct {
 // App contains the loaded config and persistent store.
 type App struct {
 	Paths  Paths
-	Config config.Config
 	Store  *sqlite.Store
+	config config.Config
+	configMu sync.RWMutex
+}
+
+// Config returns a snapshot of the current application config.
+func (app *App) Config() config.Config {
+	app.configMu.RLock()
+	defer app.configMu.RUnlock()
+	return app.config
+}
+
+// SetConfig replaces the current application config.
+func (app *App) SetConfig(cfg config.Config) {
+	app.configMu.Lock()
+	defer app.configMu.Unlock()
+	app.config = cfg
 }
 
 // ResolvePaths applies a data-directory override or the platform default.
@@ -63,7 +79,9 @@ func Open(dataDir string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &App{Paths: paths, Config: cfg, Store: store}, nil
+	application := &App{Paths: paths, Store: store}
+	application.SetConfig(cfg)
+	return application, nil
 }
 
 // Close releases app resources.

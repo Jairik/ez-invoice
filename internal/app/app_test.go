@@ -15,13 +15,13 @@ func TestOpenBootstrapsLocalFiles(t *testing.T) {
 	}
 	defer application.Close()
 
-	if application.Paths.DataDir != dataDir || application.Config.Currency != "USD" {
-		t.Fatalf("unexpected bootstrapped app: paths=%+v config=%+v", application.Paths, application.Config)
+	if application.Paths.DataDir != dataDir || application.Config().Currency != "USD" {
+		t.Fatalf("unexpected bootstrapped app: paths=%+v config=%+v", application.Paths, application.Config())
 	}
-	if application.Config.Sender.FullName != "Jairik McCauley" || application.Config.Recipients[0].CompanyName != "Tenaxiom Technology, Inc" {
-		t.Fatalf("unexpected Tenaxiom defaults: %+v", application.Config)
+	if application.Config().Sender.FullName != "Jairik McCauley" || application.Config().Recipients[0].CompanyName != "Tenaxiom Technology, Inc" {
+		t.Fatalf("unexpected Tenaxiom defaults: %+v", application.Config())
 	}
-	if info, err := os.Stat(application.Config.LogoPath); err != nil || info.IsDir() {
+	if info, err := os.Stat(application.Config().LogoPath); err != nil || info.IsDir() {
 		t.Fatalf("default logo was not created: info=%v err=%v", info, err)
 	}
 	for _, path := range []string{application.Paths.ConfigFile, application.Paths.DatabaseFile} {
@@ -29,7 +29,7 @@ func TestOpenBootstrapsLocalFiles(t *testing.T) {
 			t.Fatalf("expected file %q was not created: info=%v err=%v", path, info, err)
 		}
 	}
-	if info, err := os.Stat(application.Config.OutputDir); err != nil || !info.IsDir() {
+	if info, err := os.Stat(application.Config().OutputDir); err != nil || !info.IsDir() {
 		t.Fatalf("default output directory was not created: info=%v err=%v", info, err)
 	}
 }

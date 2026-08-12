@@ -96,14 +96,16 @@ func TestInvoiceCommands(t *testing.T) {
 // TestInvoiceGenerateReportsFinalizedExportFailure catches retryable-looking partial success.
 func TestInvoiceGenerateReportsFinalizedExportFailure(t *testing.T) {
 	application := openTestApp(t)
-	application.Config.Sender = config.Sender{FullName: "Ada Lovelace", Address: "1 Computing Ln", Email: "ada@example.com"}
-	application.Config.Recipients[0] = config.Recipient{CompanyName: "Analytical Engines", Address: "2 Difference Rd"}
+	cfg := application.Config()
+	cfg.Sender = config.Sender{FullName: "Ada Lovelace", Address: "1 Computing Ln", Email: "ada@example.com"}
+	cfg.Recipients[0] = config.Recipient{CompanyName: "Analytical Engines", Address: "2 Difference Rd"}
 	badLogo := filepath.Join(t.TempDir(), "not-an-image.txt")
 	if err := os.WriteFile(badLogo, []byte("not an image"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	application.Config.LogoPath = badLogo
-	if err := config.Save(application.Paths.ConfigFile, application.Config); err != nil {
+	cfg.LogoPath = badLogo
+	application.SetConfig(cfg)
+	if err := config.Save(application.Paths.ConfigFile, cfg); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runTestCommand(application, "time", "add", "--start", "2026-08-06 09:00", "--end", "2026-08-06 10:00", "--description", "Development", "--rate", "100.00"); err != nil {
@@ -154,6 +156,21 @@ func TestPresetAndTimeCommands(t *testing.T) {
 	}
 	if _, err := runTestCommand(application, "time", "edit", "2", "--description", "Community support"); err != nil {
 		t.Fatalf("partial zero-rate time edit returned an error: %v", err)
+	}
+}
+
+// TestTrailingArgumentsAreRejected catches silently dropped positional inputs.
+func TestTrailingArgumentsAreRejected(t *testing.T) {
+	application := openTestApp(t)
+	for _, args := range [][]string{
+		{"time", "list", "--all", "stray"},
+		{"time", "add", "--start", "2026-08-05T09:00:00Z", "--end", "2026-08-05T10:00:00Z", "--description", "x", "--rate", "1", "stray"},
+		{"invoice", "preview", "--from", "2026-08-05", "--to", "2026-08-05", "stray"},
+		{"invoice", "export", "1", "--output", ".", "stray"},
+	} {
+		if _, err := runTestCommand(application, args...); err == nil || !strings.Contains(err.Error(), "unexpected argument") {
+			t.Fatalf("Run(%v) error = %v, want unexpected argument rejection", args, err)
+		}
 	}
 }
 

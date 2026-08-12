@@ -1,0 +1,110 @@
+{{define "content"}}
+{{$inv := .Data.Invoice}}
+<header class="pagehead">
+  <div>
+    <p class="eyebrow"><a href="/invoices">← Invoices</a> · Snapshot · {{dateFull $inv.SubmittedDate}}</p>
+    <h1 class="pagetitle">Invoice {{$inv.DisplayNumber}}</h1>
+  </div>
+  <div class="pagehead-actions">
+    <form method="post" action="/invoices/{{$inv.ID}}/export">
+      <button type="submit" class="btn">Re-export</button>
+    </form>
+    <a class="btn btn-primary" href="/invoices/{{$inv.ID}}/pdf">Download PDF</a>
+  </div>
+</header>
+
+<div class="sheet-grid">
+  <article class="paper">
+    <div class="paper-head">
+      <div>
+        <div class="paper-title">Invoice</div>
+        <div class="paper-meta">No. {{$inv.DisplayNumber}} · Submitted {{dateLong $inv.SubmittedDate}}</div>
+      </div>
+      <div class="paper-from">
+        <strong>{{$inv.FromName}}</strong>
+        {{$inv.FromAddress}}<br>{{$inv.FromEmail}}
+      </div>
+    </div>
+
+    <div class="paper-parties">
+      <div>
+        <span class="paper-label">Bill to</span>
+        <div class="paper-party-name">{{$inv.ToCompany}}</div>
+        <div class="paper-party-detail">{{$inv.ToAddress}}</div>
+      </div>
+      <div>
+        {{if $inv.Contacts}}
+        <span class="paper-label">Contacts</span>
+        <div class="paper-contacts">
+          {{range $inv.Contacts}}{{.Name}} · {{.Email}}<br>{{end}}
+        </div>
+        {{end}}
+        <div class="paper-terms">Period {{dateIn $inv.PeriodStart}} – {{dateFull $inv.PeriodEnd}} · {{$inv.PayableTerms}}</div>
+      </div>
+    </div>
+
+    <table class="paper-lines">
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th class="cell-right">Units</th>
+          <th class="cell-right">Rate</th>
+          <th class="cell-right">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range $inv.LineItems}}
+        <tr>
+          <td>{{.Description}}</td>
+          <td class="cell-num">{{hours .Units}}</td>
+          <td class="cell-num">{{money .UnitPriceCents}}</td>
+          <td class="cell-num">{{money .LineTotalCents}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+
+    <div class="paper-totals">
+      <dl>
+        <div class="paper-total-row"><dt>Subtotal</dt><dd class="num">{{money $inv.SubtotalCents}}</dd></div>
+        <div class="paper-total-row"><dt>Adjustment</dt><dd class="num">{{money $inv.AdjustmentCents}}</dd></div>
+        <div class="paper-total-sum"><dt>Total due ({{$inv.Currency}})</dt><dd>{{money $inv.TotalCents}}</dd></div>
+      </dl>
+    </div>
+
+    {{if $inv.Notes}}
+    <div class="paper-notes">
+      <span class="paper-label">Notes</span>
+      <p>{{$inv.Notes}}</p>
+    </div>
+    {{end}}
+  </article>
+
+  <aside class="side">
+    <div class="panel">
+      <span class="panel-label">Snapshot</span>
+      <p class="panel-list">
+        number · {{$inv.DisplayNumber}}<br>
+        sequence · {{if $inv.NumberSequence}}auto{{else}}manual{{end}}<br>
+        lines · {{.Data.Entries}}<br>
+        currency · {{$inv.Currency}}<br>
+        terms · {{$inv.PayableTerms}}
+      </p>
+    </div>
+    <div class="panel">
+      <span class="panel-label">File</span>
+      {{if $inv.PDFPath}}
+      <p class="panel-list panel-list-tight">{{$inv.PDFPath}}</p>
+      {{if .Data.PDFOnDisk}}
+      <p class="status-dot" style="margin-top:12px">on disk · {{filesize .Data.PDFSize}}</p>
+      {{else}}
+      <p class="status-dot is-off" style="margin-top:12px">not on disk · re-export to rebuild</p>
+      {{end}}
+      {{else}}
+      <p class="panel-list panel-list-tight">No PDF has been exported yet.</p>
+      {{end}}
+    </div>
+    <p class="footnote">This view matches the exported PDF line for line.</p>
+  </aside>
+</div>
+{{end}}

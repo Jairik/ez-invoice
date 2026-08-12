@@ -1,0 +1,53 @@
+{{define "content"}}
+<header class="pagehead">
+  <div>
+    <p class="eyebrow">{{len .Data.Invoices}} issued · {{cur $.Config.Currency .Data.TotalInvoiced}} lifetime</p>
+    <h1 class="pagetitle">Invoices</h1>
+  </div>
+  {{template "headActions" .}}
+</header>
+
+<section>
+  {{if .Data.Invoices}}
+  <div class="scroller">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Number</th><th>Recipient</th><th>Period</th>
+          <th class="cell-right">Total</th><th class="cell-mid">PDF</th>
+          <th class="cell-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Data.Invoices}}
+        <tr>
+          <td><a class="ref" href="/invoices/{{.ID}}">{{.DisplayNumber}}</a></td>
+          <td>
+            {{.ToCompany}}
+            <span class="cell-sub">{{if .NumberSequence}}submitted {{date .SubmittedDate}}{{else}}manual number{{end}} · {{.PayableTerms}}</span>
+          </td>
+          <td class="cell-mono">{{dateIn .PeriodStart}} – {{dateFull .PeriodEnd}}</td>
+          <td class="cell-num cell-num-lg">{{cur .Currency .TotalCents}}</td>
+          <td class="cell-mid">{{if .PDFOnDisk}}<span class="pill pill-ok">Saved</span>{{else}}<span class="pill">Missing</span>{{end}}</td>
+          <td class="cell-actions">
+            <a class="linkbtn" href="/invoices/{{.ID}}">view</a>
+            <span class="linkbtn-sep" aria-hidden="true">·</span>
+            {{if .PDFOnDisk}}
+            <a class="linkbtn" href="/invoices/{{.ID}}/pdf">download</a>
+            {{else}}
+            <form method="post" action="/invoices/{{.ID}}/export">
+              <button type="submit" class="linkbtn linkbtn-accent">re-export</button>
+            </form>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  <p class="footnote" style="margin-top:22px">Finalized invoices are snapshots. Editing settings later never changes them.</p>
+  {{else}}
+  <p class="empty">No invoices yet. <a href="/invoices/new">Build one from your time entries</a>.</p>
+  {{end}}
+</section>
+{{end}}

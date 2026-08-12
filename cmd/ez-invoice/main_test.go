@@ -25,3 +25,19 @@ func TestRunBootstrapsAndRoutesCLI(t *testing.T) {
 		}
 	}
 }
+
+// TestServeNormalizesBarePort verifies a bare port becomes a loopback address.
+func TestServeNormalizesBarePort(t *testing.T) {
+	if got := normalizeAddr(""); got != "127.0.0.1:9090" {
+		t.Fatalf("normalizeAddr() = %q", got)
+	}
+	if got := normalizeAddr("8080"); got != "127.0.0.1:8080" {
+		t.Fatalf("normalizeAddr(8080) = %q", got)
+	}
+	if got := normalizeAddr("0.0.0.0:9090"); got != "0.0.0.0:9090" {
+		t.Fatalf("normalizeAddr(0.0.0.0:9090) = %q", got)
+	}
+	if got := normalizeAddr("::1:9090"); got != "::1:9090" {
+		t.Fatalf("normalizeAddr(::1:9090) = %q", got)
+	}
+}

@@ -24,7 +24,7 @@ func LineTotal(rateCents int64, units float64) (int64, error) {
 		return 0, errors.New("rate and units must be non-negative finite values")
 	}
 	total := float64(rateCents) * units
-	if total > math.MaxInt64 {
+	if total >= 1<<63 {
 		return 0, errors.New("line total is too large")
 	}
 	return int64(math.Round(total)), nil

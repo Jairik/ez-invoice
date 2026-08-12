@@ -18,11 +18,13 @@ func TestInvoiceAssembly(t *testing.T) {
 	}
 	defer application.Close()
 
-	application.Config.Sender = config.Sender{FullName: "Ada Lovelace", Address: "1 Computing Ln", Email: "ada@example.com"}
-	application.Config.Recipients[0] = config.Recipient{CompanyName: "Analytical Engines", Address: "2 Difference Rd"}
-	application.Config.Contacts = []config.Contact{{Name: "Charles Babbage", Email: "charles@example.com"}}
-	application.Config.DefaultAdjustment = "-5.00"
-	if err := config.Save(application.Paths.ConfigFile, application.Config); err != nil {
+	cfg := application.Config()
+	cfg.Sender = config.Sender{FullName: "Ada Lovelace", Address: "1 Computing Ln", Email: "ada@example.com"}
+	cfg.Recipients[0] = config.Recipient{CompanyName: "Analytical Engines", Address: "2 Difference Rd"}
+	cfg.Contacts = []config.Contact{{Name: "Charles Babbage", Email: "charles@example.com"}}
+	cfg.DefaultAdjustment = "-5.00"
+	application.SetConfig(cfg)
+	if err := config.Save(application.Paths.ConfigFile, cfg); err != nil {
 		t.Fatalf("Save returned an error: %v", err)
 	}
 
@@ -40,8 +42,9 @@ func TestInvoiceAssembly(t *testing.T) {
 		t.Fatal(err)
 	}
 	options := InvoiceOptions{From: start.Add(-time.Hour), To: start.Add(24 * time.Hour), ExcludeIDs: []int64{second.ID}}
-	application.Config.Recipients = append(application.Config.Recipients, config.Recipient{})
-	if err := config.Save(application.Paths.ConfigFile, application.Config); err != nil {
+	cfg.Recipients = append(cfg.Recipients, config.Recipient{})
+	application.SetConfig(cfg)
+	if err := config.Save(application.Paths.ConfigFile, cfg); err != nil {
 		t.Fatal(err)
 	}
 	invalidRecipient := options
@@ -71,8 +74,9 @@ func TestInvoiceAssembly(t *testing.T) {
 		t.Fatalf("final invoice did not snapshot config and totals: %+v", invoice)
 	}
 
-	application.Config.Sender.FullName = "Changed Later"
-	if err := config.Save(application.Paths.ConfigFile, application.Config); err != nil {
+	cfg.Sender = config.Sender{FullName: "Changed Later", Address: "1 Computing Ln", Email: "ada@example.com"}
+	application.SetConfig(cfg)
+	if err := config.Save(application.Paths.ConfigFile, cfg); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := application.Store.GetInvoice(ctx, invoice.ID)
@@ -89,9 +93,11 @@ func TestInvoiceUsesSelectedRecipient(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer application.Close()
-	application.Config.Sender = config.Sender{FullName: "Ada Lovelace", Address: "1 Computing Ln", Email: "ada@example.com"}
-	application.Config.Recipients = append(application.Config.Recipients, config.Recipient{CompanyName: "Analytical Engines", Address: "2 Difference Rd"})
-	if err := config.Save(application.Paths.ConfigFile, application.Config); err != nil {
+	cfg := application.Config()
+	cfg.Sender = config.Sender{FullName: "Ada Lovelace", Address: "1 Computing Ln", Email: "ada@example.com"}
+	cfg.Recipients = append(cfg.Recipients, config.Recipient{CompanyName: "Analytical Engines", Address: "2 Difference Rd"})
+	application.SetConfig(cfg)
+	if err := config.Save(application.Paths.ConfigFile, cfg); err != nil {
 		t.Fatal(err)
 	}
 	start := time.Date(2026, 8, 6, 9, 0, 0, 0, time.Local)

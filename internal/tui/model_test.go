@@ -160,9 +160,11 @@ func TestAddTimeFormPersistsEntry(t *testing.T) {
 // TestInvoiceWorkflowSelectsExactRows catches broken guided transitions and row toggling.
 func TestInvoiceWorkflowSelectsExactRows(t *testing.T) {
 	application := openTUITestApp(t)
-	application.Config.Sender = config.Sender{FullName: "Ada Lovelace", Address: "1 Computing Ln", Email: "ada@example.com"}
-	application.Config.Recipients[0] = config.Recipient{CompanyName: "Analytical Engines", Address: "2 Difference Rd"}
-	if err := config.Save(application.Paths.ConfigFile, application.Config); err != nil {
+	cfg := application.Config()
+	cfg.Sender = config.Sender{FullName: "Ada Lovelace", Address: "1 Computing Ln", Email: "ada@example.com"}
+	cfg.Recipients[0] = config.Recipient{CompanyName: "Analytical Engines", Address: "2 Difference Rd"}
+	application.SetConfig(cfg)
+	if err := config.Save(application.Paths.ConfigFile, cfg); err != nil {
 		t.Fatal(err)
 	}
 	start := time.Date(2026, 8, 6, 9, 0, 0, 0, time.Local)
@@ -201,8 +203,9 @@ func TestInvoiceWorkflowSelectsExactRows(t *testing.T) {
 	if err := os.WriteFile(badLogo, []byte("not an image"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	application.Config.LogoPath = badLogo
-	if err := config.Save(application.Paths.ConfigFile, application.Config); err != nil {
+	cfg.LogoPath = badLogo
+	application.SetConfig(cfg)
+	if err := config.Save(application.Paths.ConfigFile, cfg); err != nil {
 		t.Fatal(err)
 	}
 	model.cursor = len(model.invoicePreview.Entries)
@@ -463,6 +466,110 @@ func TestTimeFormUsesArrowOnlyNavigation(t *testing.T) {
 	model = press(model, tea.KeyUp)
 	if model.cursor != timeDateField {
 		t.Fatalf("Up selected field %d, want start date", model.cursor)
+	}
+}
+
+// TestMidnightAdjustmentKeepsDateInSync verifies 15-minute steps crossing midnight update the date.
+func TestMidnightAdjustmentKeepsDateInSync(t *testing.T) {
+	model := newAt(openTUITestApp(t), time.Date(2026, 8, 6, 12, 0, 0, 0, time.Local))
+	model = press(model, tea.KeyEnter)
+	model.fields[timeStartField].value = "11:45"
+	model.fields[timeStartPeriodField] = periodField("Start AM/PM", "PM")
+	model.fields[timeEndField].value = "12:00"
+	model.fields[timeEndPeriodField] = periodField("End AM/PM", "AM")
+	model.cursor = timeStartField
+	model = press(model, tea.KeyRight)
+	if model.fields[timeStartField].value != "12:00" || model.fields[timeStartPeriodField].value != "AM" {
+		t.Fatalf("forward midnight produced %q %q", model.fields[timeStartField].value, model.fields[timeStartPeriodField].value)
+	}
+	expected := time.Date(2026, 8, 6, 0, 0, 0, 0, time.Local).AddDate(0, 0, 1).Format("2006-01-02")
+	if model.fields[timeDateField].value != expected {
+		t.Fatalf("forward midnight date = %q, want %q", model.fields[timeDateField].value, expected)
+	}
+	model.cursor = timeEndField
+	model = press(model, tea.KeyLeft)
+	if model.fields[timeEndField].value != "11:45" || model.fields[timeEndPeriodField].value != "PM" {
+		t.Fatalf("backward midnight produced %q %q", model.fields[timeEndField].value, model.fields[timeEndPeriodField].value)
+	}
+	expectedEnd := time.Date(2026, 8, 6, 0, 0, 0, 0, time.Local).AddDate(0, 0, -1).Format("2006-01-02")
+	if model.fields[timeEndDateField].value != expectedEnd {
+		t.Fatalf("backward midnight end date = %q, want %q", model.fields[timeEndDateField].value, expectedEnd)
+	}
+}
+
+// TestNoonRolloverKeepsDate verifies the AM-to-PM flip at noon is not treated as midnight.
+func TestNoonRolloverKeepsDate(t *testing.T) {
+	model := newAt(openTUITestApp(t), time.Date(2026, 8, 6, 12, 0, 0, 0, time.Local))
+	model = press(model, tea.KeyEnter)
+	model.fields[timeStartField].value = "11:45"
+	model.fields[timeStartPeriodField] = periodField("Start AM/PM", "AM")
+	model.cursor = timeStartField
+	model = press(model, tea.KeyRight)
+	if model.fields[timeStartField].value != "12:00" || model.fields[timeStartPeriodField].value != "PM" {
+		t.Fatalf("noon produced %q %q", model.fields[timeStartField].value, model.fields[timeStartPeriodField].value)
+	}
+	if model.fields[timeDateField].value != "2026-08-06" {
+		t.Fatalf("noon changed date to %q", model.fields[timeDateField].value)
+	}
+}
+
+// TestFailedSaveLeavesConfigUnchanged verifies profile edits do not leak into memory on save errors.
+func TestFailedSaveLeavesConfigUnchanged(t *testing.T) {
+	application := openTUITestApp(t)
+	before := application.Config()
+	if len(before.Recipients) != 1 {
+		t.Fatalf("expected one default recipient, got %d", len(before.Recipients))
+	}
+	model := newAt(application, time.Date(2026, 8, 6, 12, 0, 0, 0, time.Local))
+	model.selectedConfigIndex = 0
+	model.fields = []field{
+		{label: "Company", value: "Changed Company", kind: fieldText},
+		{label: "Address", value: "Changed Address", kind: fieldText},
+		{label: "Save Recipient", kind: fieldAction},
+	}
+	// Break validation so config.Save rejects the write.
+	cfg := before
+	cfg.Currency = ""
+	application.SetConfig(cfg)
+	model.saveRecipient()
+	after := application.Config()
+	if after.Recipients[0].CompanyName != before.Recipients[0].CompanyName {
+		t.Fatalf("failed save mutated in-memory config to %q", after.Recipients[0].CompanyName)
+	}
+	if !model.statusError {
+		t.Fatalf("failed save did not set an error status: %q", model.status)
+	}
+}
+
+// TestOverviewExcludesInvoicedEntries verifies the UNBILLED total ignores finalized work.
+func TestOverviewExcludesInvoicedEntries(t *testing.T) {
+	application := openTUITestApp(t)
+	start := time.Date(2026, 8, 6, 9, 0, 0, 0, time.Local)
+	entry, err := application.Store.CreateTimeEntry(context.Background(), domain.TimeEntry{
+		StartAt: start, EndAt: start.Add(time.Hour), Description: "Billed work", RateAmountCents: 10_000, Currency: "USD",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = entry
+	model := newAt(application, time.Date(2026, 8, 6, 12, 0, 0, 0, time.Local))
+	model.loadOverview()
+	if len(model.overviewEntries) != 1 {
+		t.Fatalf("overview entries = %d, want 1 before invoicing", len(model.overviewEntries))
+	}
+	options := app.InvoiceOptions{From: start.Add(-time.Hour), To: start.Add(24 * time.Hour), RecipientIndex: 0}
+	cfg := application.Config()
+	cfg.Sender = config.Sender{FullName: "Ada Lovelace", Address: "1 Computing Ln", Email: "ada@example.com"}
+	application.SetConfig(cfg)
+	if err := config.Save(application.Paths.ConfigFile, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.FinalizeInvoice(context.Background(), options); err != nil {
+		t.Fatalf("finalize: %v", err)
+	}
+	model.loadOverview()
+	if len(model.overviewEntries) != 0 {
+		t.Fatalf("overview entries = %d, want 0 after invoicing", len(model.overviewEntries))
 	}
 }
 

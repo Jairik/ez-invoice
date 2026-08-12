@@ -1,0 +1,116 @@
+{{define "content"}}
+<header class="pagehead">
+  <div>
+    <p class="eyebrow">{{hours .Data.TotalHours}} hours · {{cur $.Config.Currency .Data.TotalValue}} unbilled</p>
+    <h1 class="pagetitle">Time</h1>
+  </div>
+  {{template "headActions" .}}
+</header>
+
+<form method="get" action="/time" class="filters">
+  <div class="field"><label for="filter-from">From</label><input type="date" name="from" id="filter-from" value="{{.Data.From}}"></div>
+  <div class="field"><label for="filter-to">To</label><input type="date" name="to" id="filter-to" value="{{.Data.To}}"></div>
+  <label class="check"><input type="checkbox" name="all" value="1" {{if .Data.All}}checked{{end}}> Show invoiced</label>
+  <button class="btn btn-sq" type="submit">Apply</button>
+  <p class="filters-total">{{len .Data.Entries}} entries · {{hours .Data.TotalHours}} h · {{cur $.Config.Currency .Data.TotalValue}}</p>
+</form>
+
+<details class="sheet" {{if not .Data.Entries}}open{{end}}>
+  <summary><span class="section-title">Add time entry</span></summary>
+  {{template "entryForm" dict "Action" "/time/create" "Entry" nil "Suffix" "new" "DescPreset" .Data.DescPreset "RatePreset" .Data.RatePreset}}
+</details>
+
+<section>
+  {{if .Data.Entries}}
+  <div class="scroller">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Date</th><th>Description</th><th>Interval</th>
+          <th class="cell-right">Hours</th><th class="cell-right">Amount</th>
+          <th class="cell-mid">Status</th><th><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Data.Entries}}
+        <tr class="{{if .InvoiceID}}is-muted{{end}}">
+          <td class="cell-mono">{{dateIn .StartAt}}</td>
+          <td>{{.Description}}{{if .Notes}}<span class="cell-sub">{{.Notes}}</span>{{end}}</td>
+          <td class="cell-mono">{{clock .StartAt}} – {{clock .EndAt}}</td>
+          <td class="cell-num">{{hours .Hours}}</td>
+          <td class="cell-num">{{cur .Currency .LineTotalCents}}</td>
+          <td class="cell-mid">
+            {{if .InvoiceID}}<a class="pill" href="/invoices/{{deref .InvoiceID}}">Invoiced</a>{{else}}<span class="pill pill-ok">Open</span>{{end}}
+          </td>
+          <td class="cell-actions">
+            {{if .InvoiceID}}
+            <a class="linkbtn" href="/invoices/{{deref .InvoiceID}}">view</a>
+            {{else}}
+            <button type="button" class="linkbtn" data-edit-toggle="entry-edit-{{.ID}}">edit</button>
+            <span class="linkbtn-sep" aria-hidden="true">·</span>
+            <form method="post" action="/time/{{.ID}}/delete" data-confirm="Delete this entry? It is not on an invoice.">
+              <button type="submit" class="linkbtn linkbtn-danger">delete</button>
+            </form>
+            {{end}}
+          </td>
+        </tr>
+        <tr class="edit-row" data-edit-form="entry-edit-{{.ID}}" hidden>
+          <td colspan="7">
+            <span class="edit-label">Editing entry {{.ID}}</span>
+            {{template "entryForm" dict "Action" (printf "/time/%d/update" .ID) "Entry" . "Suffix" (printf "edit-%d" .ID) "DescPreset" $.Data.DescPreset "RatePreset" $.Data.RatePreset}}
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <p class="empty">No entries in this range. Adjust the dates above, or add one with the form.</p>
+  {{end}}
+</section>
+{{end}}
+
+{{define "entryForm"}}
+{{$entry := .Entry}}
+<form method="post" action="{{.Action}}">
+  <div class="formgrid formgrid-4">
+    <div class="field">
+      <label for="start-{{.Suffix}}">Start</label>
+      <input type="datetime-local" name="start" id="start-{{.Suffix}}" value="{{if $entry}}{{dateTimeLoc $entry.StartAt}}{{end}}" required>
+    </div>
+    <div class="field">
+      <label for="end-{{.Suffix}}">End</label>
+      <input type="datetime-local" name="end" id="end-{{.Suffix}}" value="{{if $entry}}{{dateTimeLoc $entry.EndAt}}{{end}}" required>
+    </div>
+    <div class="field">
+      <label for="desc-preset-{{.Suffix}}">Description</label>
+      <select name="description_preset" id="desc-preset-{{.Suffix}}" class="preset-select" data-custom-target="desc-{{.Suffix}}">
+        <option value="custom">Custom…</option>
+        {{range .DescPreset}}<option value="{{.ID}}" {{if eq .ID (deref $entry.DescriptionPresetID)}}selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
+      <input type="text" name="description" data-custom="desc-{{.Suffix}}" aria-label="Custom description" placeholder="What did you work on?" value="{{if and $entry (not $entry.DescriptionPresetID)}}{{.Description}}{{end}}">
+    </div>
+    <div class="field">
+      <label for="rate-preset-{{.Suffix}}">Rate</label>
+      <select name="rate_preset" id="rate-preset-{{.Suffix}}" class="preset-select" data-custom-target="rate-{{.Suffix}}">
+        <option value="custom">Custom…</option>
+        {{range .RatePreset}}<option value="{{.ID}}" {{if eq .ID (deref $entry.RatePresetID)}}selected{{end}}>{{.Label}} · {{cur .Currency .AmountCents}}</option>{{end}}
+      </select>
+      <div class="field-pair" data-custom="rate-{{.Suffix}}">
+        <input type="text" name="rate" inputmode="decimal" aria-label="Custom rate" placeholder="125.00" value="{{if and $entry (not $entry.RatePresetID)}}{{money $entry.RateAmountCents}}{{end}}">
+        <input type="text" name="currency" aria-label="Custom currency" placeholder="USD" value="{{if and $entry (not $entry.RatePresetID)}}{{.Currency}}{{end}}">
+      </div>
+    </div>
+  </div>
+  <div class="formgrid" style="grid-template-columns:1fr 200px;margin-top:18px;align-items:end">
+    <div class="field">
+      <label for="notes-{{.Suffix}}">Notes</label>
+      <input type="text" name="notes" id="notes-{{.Suffix}}" placeholder="Optional context for this interval" value="{{if $entry}}{{.Notes}}{{end}}">
+    </div>
+    <div class="btn-pair">
+      <button type="submit" class="btn btn-primary btn-sq">{{if $entry}}Save{{else}}Save entry{{end}}</button>
+      {{if $entry}}<button type="button" class="btn btn-sq" data-edit-toggle="{{printf "entry-edit-%d" $entry.ID}}">Cancel</button>{{end}}
+    </div>
+  </div>
+</form>
+{{end}}

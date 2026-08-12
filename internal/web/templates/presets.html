@@ -1,0 +1,107 @@
+{{define "content"}}
+<header class="pagehead">
+  <div>
+    <p class="eyebrow">Reusable values · {{len .Data.Rates}} rates · {{len .Data.Descriptions}} descriptions</p>
+    <h1 class="pagetitle">Presets</h1>
+  </div>
+  {{template "headActions" .}}
+</header>
+
+<div class="columns">
+  <section>
+    <div class="section-head">
+      <h2 class="section-title">Rates</h2>
+      <span class="section-note">Cents-exact</span>
+    </div>
+    <table class="table">
+      <tbody>
+        {{range .Data.Rates}}
+        <tr class="{{if not .Active}}is-muted{{end}}">
+          <td><span {{if not .Active}}class="strike"{{end}}>{{.Label}}</span></td>
+          <td class="cell-num">{{cur .Currency .AmountCents}}</td>
+          <td class="cell-mid">{{if .Active}}<span class="pill pill-ok">Active</span>{{else}}<span class="pill">Off</span>{{end}}</td>
+          <td class="cell-actions">
+            <button type="button" class="linkbtn" data-edit-toggle="rate-edit-{{.ID}}">edit</button>
+            <span class="linkbtn-sep" aria-hidden="true">·</span>
+            <form method="post" action="/presets/rates/{{.ID}}/toggle">
+              <input type="hidden" name="active" value="{{if .Active}}0{{else}}1{{end}}">
+              <button type="submit" class="linkbtn {{if not .Active}}linkbtn-accent{{end}}">{{if .Active}}deactivate{{else}}restore{{end}}</button>
+            </form>
+          </td>
+        </tr>
+        <tr class="edit-row" data-edit-form="rate-edit-{{.ID}}" hidden>
+          <td colspan="4">
+            <form method="post" action="/presets/rates/{{.ID}}/update" class="edit-grid">
+              <input type="text" name="label" aria-label="Rate label" value="{{.Label}}" required>
+              <input type="text" name="amount" inputmode="decimal" aria-label="Rate amount" value="{{money .AmountCents}}" required>
+              <input type="text" name="currency" aria-label="Rate currency" value="{{.Currency}}" required>
+              <span class="edit-actions">
+                <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                <button type="button" class="btn btn-sm" data-edit-toggle="rate-edit-{{.ID}}">Cancel</button>
+              </span>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{if not .Data.Rates}}<p class="empty">No rates yet. Add the first one below.</p>{{end}}
+    <details class="add-detail">
+      <summary class="add-inline">+ Add rate</summary>
+      <form method="post" action="/presets/rates/create" class="add-row">
+        <div class="field"><label for="rate-label">Label</label><input type="text" name="label" id="rate-label" placeholder="Standard hourly" required></div>
+        <div class="field"><label for="rate-amount">Amount</label><input type="text" name="amount" id="rate-amount" inputmode="decimal" placeholder="125.00" required></div>
+        <button type="submit" class="btn btn-primary btn-sq">Add</button>
+      </form>
+    </details>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2 class="section-title">Descriptions</h2>
+      <span class="section-note">Line labels</span>
+    </div>
+    <table class="table">
+      <tbody>
+        {{range .Data.Descriptions}}
+        <tr class="{{if not .Active}}is-muted{{end}}">
+          <td><span {{if not .Active}}class="strike"{{end}}>{{.Label}}</span></td>
+          <td class="cell-mid">{{if .Active}}<span class="pill pill-ok">Active</span>{{else}}<span class="pill">Off</span>{{end}}</td>
+          <td class="cell-actions">
+            <button type="button" class="linkbtn" data-edit-toggle="desc-edit-{{.ID}}">edit</button>
+            <span class="linkbtn-sep" aria-hidden="true">·</span>
+            <form method="post" action="/presets/descriptions/{{.ID}}/toggle">
+              <input type="hidden" name="active" value="{{if .Active}}0{{else}}1{{end}}">
+              <button type="submit" class="linkbtn {{if not .Active}}linkbtn-accent{{end}}">{{if .Active}}deactivate{{else}}restore{{end}}</button>
+            </form>
+          </td>
+        </tr>
+        <tr class="edit-row" data-edit-form="desc-edit-{{.ID}}" hidden>
+          <td colspan="3">
+            <form method="post" action="/presets/descriptions/{{.ID}}/update" class="edit-grid">
+              <input type="text" name="label" aria-label="Description label" value="{{.Label}}" required>
+              <span class="edit-actions">
+                <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                <button type="button" class="btn btn-sm" data-edit-toggle="desc-edit-{{.ID}}">Cancel</button>
+              </span>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{if not .Data.Descriptions}}<p class="empty">No descriptions yet. Add the first one below.</p>{{end}}
+    <details class="add-detail">
+      <summary class="add-inline">+ Add description</summary>
+      <form method="post" action="/presets/descriptions/create" class="add-row">
+        <div class="field"><label for="desc-label">Description</label><input type="text" name="label" id="desc-label" placeholder="Software development" required></div>
+        <button type="submit" class="btn btn-primary btn-sq">Add</button>
+      </form>
+    </details>
+
+    <p class="footnote-rule" style="margin-top:26px">
+      Deactivating never deletes. Past invoices keep the label and amount they were issued with; only new entries stop offering it.
+    </p>
+  </section>
+</div>
+{{end}}

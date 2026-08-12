@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -61,7 +62,7 @@ func (app *App) assembleInvoice(ctx context.Context, options InvoiceOptions) (do
 	if err := cfg.ValidateForInvoice(); err != nil {
 		return domain.InvoiceDraft{}, InvoicePreview{}, err
 	}
-	app.Config = cfg
+	app.SetConfig(cfg)
 	if !options.To.After(options.From) {
 		return domain.InvoiceDraft{}, InvoicePreview{}, errors.New("invoice range end must be after its start")
 	}
@@ -104,7 +105,11 @@ func (app *App) assembleInvoice(ctx context.Context, options InvoiceOptions) (do
 		}
 		preview.Entries = append(preview.Entries, entry)
 		entryIDs = append(entryIDs, entry.ID)
-		preview.SubtotalCents += entry.LineTotalCents()
+		if lineTotal := entry.LineTotalCents(); lineTotal > 0 && preview.SubtotalCents > math.MaxInt64-lineTotal {
+			return domain.InvoiceDraft{}, InvoicePreview{}, errors.New("invoice subtotal is too large")
+		} else {
+			preview.SubtotalCents += lineTotal
+		}
 	}
 	for id := range included {
 		if !found[id] {
@@ -117,6 +122,9 @@ func (app *App) assembleInvoice(ctx context.Context, options InvoiceOptions) (do
 	}
 	if options.AdjustmentCents != nil {
 		preview.AdjustmentCents = *options.AdjustmentCents
+	}
+	if preview.AdjustmentCents > 0 && preview.SubtotalCents > math.MaxInt64-preview.AdjustmentCents {
+		return domain.InvoiceDraft{}, InvoicePreview{}, errors.New("invoice total is too large")
 	}
 	preview.TotalCents = preview.SubtotalCents + preview.AdjustmentCents
 

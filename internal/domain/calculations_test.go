@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -34,6 +35,10 @@ func TestLineTotal(t *testing.T) {
 
 	if _, err := LineTotal(-1, 1); err == nil {
 		t.Fatal("LineTotal accepted a negative rate")
+	}
+
+	if total, err := LineTotal(math.MaxInt64, 1); err == nil || total != 0 {
+		t.Fatalf("LineTotal(%d, 1) = (%d, %v), want overflow error", math.MaxInt64, total, err)
 	}
 }
 

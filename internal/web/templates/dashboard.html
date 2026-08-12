@@ -1,0 +1,123 @@
+{{define "content"}}
+<header class="pagehead pagehead-tall">
+  <div>
+    <p class="eyebrow">{{.Data.Today}}</p>
+    <h1 class="pagetitle pagetitle-xl">Welcome back.</h1>
+    <p class="lede">
+      {{hours .Data.MonthHours}} hours this month{{if gt .Data.UnbilledHours 0.0}}, of which {{hours .Data.UnbilledHours}} are not yet on an invoice{{end}}.
+    </p>
+  </div>
+  {{template "headActions" .}}
+</header>
+
+<section class="stats" aria-label="Summary">
+  <div class="stat">
+    <span class="stat-label">Today</span>
+    <span class="stat-value">{{hours .Data.TodayHours}}</span>
+    <span class="stat-note">hours · {{cur $.Config.Currency .Data.TodayValue}}</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">This month</span>
+    <span class="stat-value">{{hours .Data.MonthHours}}</span>
+    <span class="stat-note">hours · {{cur $.Config.Currency .Data.MonthValue}}</span>
+  </div>
+  <div class="stat stat-accent">
+    <span class="stat-label">Unbilled</span>
+    <span class="stat-value">{{hours .Data.UnbilledHours}}</span>
+    <span class="stat-note">hours · {{cur $.Config.Currency .Data.Unbilled}}</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Invoiced</span>
+    <span class="stat-value">{{money .Data.Invoiced}}</span>
+    <span class="stat-note">{{lower $.Config.Currency}} · {{.Data.InvoiceCount}} invoice{{if ne .Data.InvoiceCount 1}}s{{end}}</span>
+  </div>
+</section>
+
+<div class="columns columns-wide">
+  <div>
+    <div class="section-head">
+      <h2 class="section-title">Recent time</h2>
+      <a class="section-note" href="/time">All entries →</a>
+    </div>
+    {{if .Data.Recent}}
+    <table class="table">
+      <caption class="sr-only">Most recent time entries</caption>
+      <tbody>
+        {{range .Data.Recent}}
+        <tr {{if .InvoiceID}}class="is-muted"{{end}}>
+          <td>
+            {{.Description}}
+            <span class="cell-sub">{{dateIn .StartAt}} · {{if .InvoiceID}}invoiced{{else}}{{clock .StartAt}}–{{clock .EndAt}}{{end}}</span>
+          </td>
+          <td class="cell-num">{{hours .Hours}}</td>
+          <td class="cell-num">{{cur .Currency .LineTotalCents}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p class="empty">No entries in the last 30 days. <a href="/time">Log your first entry</a>.</p>
+    {{end}}
+
+    <div style="margin-top:34px">
+      <p class="stat-label">Six months</p>
+      <div class="bars">
+        {{range $index, $bar := .Data.Bars}}
+        <div class="bar {{if eq $index 5}}is-current{{end}}" style="height:{{if $bar.Width}}{{$bar.Width}}{{else}}2{{end}}%" title="{{$bar.Label}} · {{hours $bar.Hours}} hours"></div>
+        {{end}}
+      </div>
+      <div class="bar-labels" aria-hidden="true">
+        {{range $index, $bar := .Data.Bars}}<span class="{{if eq $index 5}}is-current{{end}}">{{$bar.Label}}</span>{{end}}
+      </div>
+    </div>
+  </div>
+
+  <div class="stack">
+    <div>
+      <div class="section-head">
+        <h2 class="section-title">Invoices</h2>
+        <a class="section-note" href="/invoices">History →</a>
+      </div>
+      {{if .Data.Invoices}}
+      <table class="table table-tight">
+        <tbody>
+          {{range .Data.Invoices}}
+          <tr>
+            <td>
+              <a href="/invoices/{{.ID}}">{{.ToCompany}}</a>
+              <span class="cell-sub">#{{.DisplayNumber}} · {{dateIn .SubmittedDate}}</span>
+            </td>
+            <td class="cell-num">{{cur .Currency .TotalCents}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <p class="empty">No invoices yet. <a href="/invoices/new">Create your first one</a>.</p>
+      {{end}}
+    </div>
+
+    <div class="panel panel-accent">
+      <div class="panel-head">
+        <span class="panel-label">Next</span>
+        <span class="panel-note">{{.Data.DaysLeft}} day{{if ne .Data.DaysLeft 1}}s{{end}}</span>
+      </div>
+      <p class="panel-lead">The {{.Data.MonthName}} period closes in {{.Data.DaysLeft}} day{{if ne .Data.DaysLeft 1}}s{{end}}.</p>
+      <p class="panel-body">
+        {{if .Data.UnbilledCount}}
+        {{hours .Data.UnbilledHours}} unbilled hours across {{.Data.UnbilledCount}} entr{{if eq .Data.UnbilledCount 1}}y{{else}}ies{{end}}, worth {{cur $.Config.Currency .Data.Unbilled}}.
+        {{else}}
+        Nothing is waiting to be billed. Every logged entry is on an invoice.
+        {{end}}
+      </p>
+      <a class="btn btn-quiet btn-block" href="/invoices/new">Preview invoice</a>
+    </div>
+
+    <p class="footnote">
+      db · {{.Data.DataDir}}<br>
+      out · {{.Config.OutputDir}}<br>
+      {{if .Data.DefaultRate}}rate · {{.Data.DefaultRate}} default{{else}}rate · none set{{end}}
+    </p>
+  </div>
+</div>
+{{end}}

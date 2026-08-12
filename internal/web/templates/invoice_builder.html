@@ -1,0 +1,172 @@
+{{define "content"}}
+<header class="pagehead pagehead-plain">
+  <p class="eyebrow">Draft · nothing is written until you generate</p>
+  <h1 class="pagetitle pagetitle-lg">New invoice</h1>
+</header>
+
+<form method="post" action="/invoices/generate" id="invoice-form">
+  <div class="sheet-grid" style="grid-template-columns:1fr 290px;gap:44px">
+    <div class="steps">
+
+      <section class="step">
+        <div class="step-rail"><span class="step-num">1</span><span class="step-line"></span></div>
+        <div class="step-body">
+          <h2 class="step-title">Choose the period</h2>
+          <div class="filters" style="margin-top:16px;gap:14px">
+            <div class="field">
+              <label for="range-from">From</label>
+              <input type="date" name="from" id="range-from" value="{{.Data.From}}" required>
+            </div>
+            <div class="field">
+              <label for="range-to">To</label>
+              <input type="date" name="to" id="range-to" value="{{.Data.To}}" required>
+            </div>
+            <div class="chips" data-range-presets>
+              <button type="button" class="chip" data-range="month">This month</button>
+              <button type="button" class="chip" data-range="last">Last month</button>
+              <button type="button" class="chip" data-range="quarter">Quarter</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="step">
+        <div class="step-rail"><span class="step-num">2</span><span class="step-line"></span></div>
+        <div class="step-body">
+          <div class="step-head">
+            <h2 class="step-title">Tick the entries to bill</h2>
+            <span class="section-note section-note-plain"><span id="preview-count">{{len .Data.Entries}}</span> of {{len .Data.Entries}} selected · <span id="preview-hours">–</span> h</span>
+          </div>
+          {{if .Data.Entries}}
+          <div class="picker scroller" style="margin-top:16px">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th><span class="sr-only">Include</span></th>
+                  <th>Date</th><th>Description</th>
+                  <th class="cell-right">Hours</th><th class="cell-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{range .Data.Entries}}
+                <tr class="entry-row" data-entry-id="{{.ID}}">
+                  <td><label class="check"><input type="checkbox" class="entry-check" name="include" value="{{.ID}}" checked><span class="sr-only">Include {{.Description}}</span></label></td>
+                  <td class="cell-mono">{{dateIn .StartAt}}</td>
+                  <td>{{.Description}}{{if .Notes}}<span class="cell-sub">{{.Notes}}</span>{{end}}</td>
+                  <td class="cell-num">{{hours .Hours}}</td>
+                  <td class="cell-num">{{cur .Currency .LineTotalCents}}</td>
+                </tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+          {{else}}
+          <p class="empty">No uninvoiced entries in this period. Widen the dates above, or <a href="/time">log time</a> first.</p>
+          {{end}}
+        </div>
+      </section>
+
+      <section class="step">
+        <div class="step-rail"><span class="step-num">3</span><span class="step-line"></span></div>
+        <div class="step-body">
+          <h2 class="step-title">Details</h2>
+          <div class="formgrid formgrid-3" style="margin-top:16px">
+            <div class="field span-2">
+              <label for="recipient">Recipient</label>
+              <select name="recipient" id="recipient">
+                {{range .Data.Recipient}}<option value="{{.Index}}" data-address="{{.Address}}">{{.Company}}</option>{{end}}
+              </select>
+            </div>
+            <div class="field">
+              <label for="submitted">Submitted</label>
+              <input type="date" name="submitted" id="submitted" value="{{.Data.Submitted}}">
+            </div>
+            <div class="field">
+              <label for="number">Number</label>
+              <input type="text" name="number" id="number" placeholder="auto">
+            </div>
+            <div class="field">
+              <label for="terms">Terms</label>
+              <input type="text" name="terms" id="terms" value="{{.Data.Terms}}">
+            </div>
+            <div class="field">
+              <label for="adjustment">Adjustment</label>
+              <input type="text" name="adjustment" id="adjustment" inputmode="decimal" value="{{.Data.Adjustment}}">
+            </div>
+            <div class="field span-all">
+              <label for="notes">Notes</label>
+              <textarea name="notes" id="notes" rows="2">{{.Data.Notes}}</textarea>
+            </div>
+          </div>
+          {{if .Data.Contacts}}
+          <div class="check-group" style="margin-top:16px">
+            {{range .Data.Contacts}}<label class="check"><input type="checkbox" name="contact" value="{{.Index}}" checked>{{.Name}}</label>{{end}}
+          </div>
+          {{end}}
+        </div>
+      </section>
+
+      <section class="step">
+        <div class="step-rail"><span class="step-num">4</span></div>
+        <div class="step-body">
+          <h2 class="step-title">Review and generate</h2>
+          <div class="panel panel-accent" style="margin-top:16px;padding:22px 24px">
+            <div class="formgrid formgrid-2" style="gap:26px">
+              <p class="panel-body" style="margin:0">
+                <span class="panel-label">To</span><br>
+                <span id="review-recipient">{{with index .Data.Recipient 0}}{{.Company}}{{end}}</span><br>
+                <span id="review-address">{{with index .Data.Recipient 0}}{{.Address}}{{end}}</span>
+              </p>
+              <p class="panel-body" style="margin:0">
+                <span class="panel-label">Period · terms · output</span><br>
+                <span id="review-period">{{.Data.From}} – {{.Data.To}}</span> · {{.Data.Terms}}<br>
+                {{.Config.OutputDir}}
+              </p>
+            </div>
+            <dl class="totals" style="margin-top:20px;padding-top:18px;border-top:1px solid var(--rule)">
+              <div class="totals-row">
+                <dt>Subtotal · <span id="preview-entries">{{len .Data.Entries}}</span> entries</dt>
+                <dd class="num" id="preview-subtotal">–</dd>
+              </div>
+              <div class="totals-row">
+                <dt>Adjustment</dt>
+                <dd class="num" id="preview-adjustment">–</dd>
+              </div>
+              <div class="totals-sum">
+                <dt>Total due</dt>
+                <dd id="preview-total">{{cur .Data.Currency 0}}</dd>
+              </div>
+            </dl>
+            <p class="form-error" id="preview-error" hidden></p>
+          </div>
+          <div class="form-actions" style="margin-top:20px">
+            <button type="submit" class="btn btn-primary btn-lg" id="generate-btn" {{if not .Data.Entries}}disabled{{end}}>Generate invoice and PDF</button>
+            <span class="footnote">Locks <span id="preview-lock">{{len .Data.Entries}}</span> entries · allocates the next number</span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <aside class="side">
+      <div class="panel">
+        <span class="panel-label">Running total</span>
+        <p class="running" id="running-total">{{cur .Data.Currency 0}}</p>
+        <p class="panel-list">
+          entries · <span id="running-count">{{len .Data.Entries}}</span> of {{len .Data.Entries}}<br>
+          hours · <span id="running-hours">–</span><br>
+          subtotal · <span id="running-subtotal">–</span><br>
+          adjustment · <span id="running-adjustment">–</span>
+        </p>
+        <hr class="rule">
+        <div class="checklist">
+          <span class="status-dot">period set</span>
+          <span class="status-dot" id="check-entries">entries chosen</span>
+          <span class="status-dot" id="check-details">details complete</span>
+          <span class="status-dot is-off">not yet generated</span>
+        </div>
+      </div>
+      <p class="footnote" id="running-note">Unticked entries stay open and appear in the next period.</p>
+    </aside>
+  </div>
+</form>
+{{end}}

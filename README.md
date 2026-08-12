@@ -125,6 +125,26 @@ The TUI opens on a keyboard-first workspace with Overview, Time, Invoices, Prese
 
 New time entries default both start and end dates to today. Times use separate AM/PM selectors, accept direct 12-hour typing with an optional colon, and move in 15-minute steps with Up and Down. The live total appears below the interval, and a confirmation screen shows the exact dates, times, and duration before saving. End timestamps must be later than start timestamps; separate dates continue to support overnight work. Description and rate fields start with the first active preset; cycle to Custom to enter a one-off value. Invoice creation guides you through dates, exact row selection, metadata, review, and PDF generation.
 
+## Web interface
+
+A local browser interface covers the same workflows with live invoice previews, PDF downloads, and a settings editor:
+
+```sh
+# Start the web interface on the default localhost port.
+./ez-invoice serve
+
+# Choose another address (port, or host and port).
+./ez-invoice serve 127.0.0.1:9090
+```
+
+The server binds to `127.0.0.1:9090` by default and shares the same config file and database as the TUI and CLI. It is a local single-user app with no authentication; keep the address on localhost.
+
+- The Overview page shows today's and monthly hours, unbilled value, recent entries and invoices, and a six-month hours chart.
+- Time entries can be filtered by date range, added, edited inline, and deleted with confirmation.
+- Rates and description presets are managed from the Presets page, including deactivation and restore.
+- New invoices are built in one page: pick a period, tick the entries to bill, and watch subtotal, adjustment, and total update live before generating. The finalized PDF is written to the configured output directory and linked from the invoice history.
+- The interface is a single dark theme: near-black chrome with a forest-green accent, set in Instrument Serif and Geist. The invoice detail page renders the sheet as paper inside that chrome, so the screen and the exported PDF are the same object. Fonts are embedded in the binary, so it renders identically offline.
+
 ## Development
 
 ```sh
@@ -134,4 +154,4 @@ go test ./...
 go build ./cmd/ez-invoice
 ```
 
-The code is organized into `internal/domain`, `internal/config`, `internal/store/sqlite`, `internal/app`, `internal/cli`, `internal/tui`, and `internal/invoice/pdf`, with the executable under `cmd/ez-invoice`.
+The code is organized into `internal/domain`, `internal/config`, `internal/store/sqlite`, `internal/app`, `internal/cli`, `internal/tui`, `internal/web`, and `internal/invoice/pdf`, with the executable under `cmd/ez-invoice`.
